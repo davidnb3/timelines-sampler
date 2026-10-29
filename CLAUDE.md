@@ -7,10 +7,11 @@ them as WAV/MP3. Web app first; a Tauri or Electron wrapper is planned later.
 ## Commands
 
 - `npm run dev`: API (http://127.0.0.1:4747) and UI (http://localhost:5273, strict port) together.
-- `npm test`: unit tests (`server/**/*.test.ts`, Node's built-in runner, no extra deps).
+- `npm test`: unit tests (`server/**/*.test.ts` and `web/src/**/*.test.ts`, Node's built-in runner, no extra deps).
 - `npm run typecheck`: `tsc --noEmit` over `server/` and `web/src/`.
 - `npm run build` then `npm start`: serves the built UI from the API server on :4747.
-- `npm run ingest -- <ia|podcast|stats> ...`: add recordings to the index (see `server/ingest.ts` usage).
+- `npm run ingest -- <ia|podcast|stats|retitle> ...`: add recordings to the index (see `server/ingest.ts` usage). `retitle` recomputes Internet Archive titles and dates from stored file names, with no re-transcribing.
+- After replacing or deleting `data/telly.sqlite`, restart the API (`touch server/index.ts` under `npm run dev`); it keeps the old file open otherwise.
   Example: `npm run ingest -- ia --query 'collection:oldtimeradio AND subject:"science fiction"' --limit 4 --per-item 2 --topic sci-fi --max-minutes 10`
 
 Node 24+ runs the TypeScript in `server/` directly (type stripping), so there is no server build step.
@@ -25,8 +26,9 @@ with `.ts` extensions.
 - `server/sources/gdelt.ts`: live TV caption search (GDELT TV API, needs `market:"National"`, takes 10-20 s).
 - `server/sources/internetArchive.ts`, `server/sources/podcastIndex.ts`: clients used by ingest.
 - `server/ingest.ts`, `server/whisper.ts`: ffmpeg streams the source to 16 kHz WAV, `whisper-cli` (whisper.cpp) transcribes it, segments go into SQLite. Topics come from source metadata (`server/topics.ts` normalises spellings) plus `--topic`.
+- `server/naming.ts`: broadcast date and readable title from Internet Archive file names.
 - `server/clip.ts`: cuts a clip with ffmpeg, cached in `data/clips/`. Only `ep:<id>` refs resolve, so the endpoint is not an open proxy.
-- `web/src/`: React UI. `App.tsx` (state, search, shortcuts), `ResultCard.tsx`, `Waveform.tsx` (canvas), `usePlayer.ts` (clip blob + waveform peaks), `theme.ts` (light/dark, remembered in localStorage), `styles.css` (CSS variables for both themes).
+- `web/src/`: React UI. `App.tsx` (state, search, shortcuts), `ResultCard.tsx`, `Waveform.tsx` (canvas), `usePlayer.ts` (clip blob + waveform peaks), `theme.ts` (light/dark, remembered in localStorage), `format.ts` (time/date formatting and search-term highlighting, unit-tested), `styles.css` (CSS variables for both themes).
 - Shared types live in `server/types.ts` and are imported by the web code as types only.
 
 ## Secrets and data

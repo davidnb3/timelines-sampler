@@ -15,7 +15,7 @@
     "start": "node --env-file=.env server/index.ts",
     "ingest": "node --env-file=.env server/ingest.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --test \"server/**/*.test.ts\""
+    "test": "node --test \"server/**/*.test.ts\" \"web/src/**/*.test.ts\""
   },
   "dependencies": {
     "react": "^19.0.0",

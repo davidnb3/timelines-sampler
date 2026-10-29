@@ -35,7 +35,8 @@ export function highlightParts(text: string, terms: string[]): TextPart[] {
   const parts: TextPart[] = [];
   for (const piece of text.split(/(\s+)/)) {
     const word = piece.toLowerCase().replace(/[^\p{L}\p{N}']/gu, '').replace(/'/g, '');
-    const match = word.length > 0 && stems.some((s) => word.startsWith(s));
+    // A few trailing letters cover plurals and verb endings; "radioactive" must not match "radio".
+    const match = word.length > 0 && stems.some((s) => word.startsWith(s) && word.length - s.length <= 3);
     const last = parts[parts.length - 1];
     if (last && last.match === match) last.text += piece;
     else parts.push({ text: piece, match });

@@ -105,18 +105,22 @@ export function App() {
     [sources, topics],
   );
 
-  // Run the query from the URL once, and re-run when a filter changes.
-  const firstRender = useRef(true);
+  // Run the query from the URL once, and re-run when a filter changes. The key comparison also
+  // keeps StrictMode's second effect pass from searching twice (GDELT is slow and rate-limited).
+  const filterKey = JSON.stringify([topics, sources]);
+  const lastFilterKey = useRef<string | null>(null);
   useEffect(() => {
-    if (firstRender.current) {
-      firstRender.current = false;
+    if (lastFilterKey.current === null) {
+      lastFilterKey.current = filterKey;
       if (input.trim()) run(input);
       return;
     }
+    if (lastFilterKey.current === filterKey) return;
+    lastFilterKey.current = filterKey;
     if (submittedRef.current) run(submittedRef.current);
-    // Only filter changes should trigger a re-run; `run` is rebuilt exactly when they change.
+    // `run` is rebuilt exactly when the filters change, so the key is the only dependency needed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topics, sources]);
+  }, [filterKey]);
 
   const hits = useMemo(() => [...results.library.hits, ...results.tv.hits], [results]);
   const terms = useMemo(() => [...new Set([...results.library.terms, ...results.tv.terms])], [results]);
@@ -170,8 +174,10 @@ export function App() {
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      const typing = (e.target as HTMLElement | null)?.closest('input, textarea, select, [contenteditable]');
-      if (typing) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, [contenteditable]')) return;
+      // Space/Enter on a focused button or link must activate it, not trigger the play shortcut.
+      if ((e.key === ' ' || e.key === 'Enter') && target?.closest('button, a')) return;
       const ids = hits.map((h) => h.id);
       const at = effectiveSelected ? ids.indexOf(effectiveSelected) : -1;
       const move = (to: number) => {
