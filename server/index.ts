@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { ClipError, cutClip, type ClipFormat } from './clip.ts';
+import { ClipError, cutClip, warmSource, type ClipFormat } from './clip.ts';
 import { PORT, WEB_DIST } from './config.ts';
 import { libraryStats, listTopics, openDb } from './db.ts';
 import { expandWindow, searchLibrary } from './sources/library.ts';
@@ -70,7 +70,10 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse, ur
     if (!q) return sendJson(res, 400, { error: 'Missing q' });
     if (source === 'library') {
       const topics = (p.get('topics') ?? '').split(',').map((t) => t.trim()).filter(Boolean);
-      return sendJson(res, 200, searchLibrary(conn, q, topics, limit, intParam(p.get('context'), 1, 0, 6)));
+      const found = searchLibrary(conn, q, topics, limit, intParam(p.get('context'), 1, 0, 6));
+      // Resolve the audio address of the best hits now (one small request each), so playing one is quick.
+      for (const ref of [...new Set(found.hits.map((h) => h.ref))].slice(0, 3)) warmSource(conn, ref);
+      return sendJson(res, 200, found);
     }
     if (source === 'tv') return sendJson(res, 200, await searchTv(q, limit));
     return sendJson(res, 400, { error: `Unknown source "${source}"` });
