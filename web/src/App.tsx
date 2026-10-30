@@ -74,12 +74,28 @@ function PromptHint({ visible }: { visible: boolean }) {
   return <span key={i} className="prompt-hint" aria-hidden>{EXAMPLES[i]}</span>;
 }
 
+/** Mirrored pulse bars around an orange centre bar: the sound at the moment you are looking at. */
+const LOGO_BARS = [3, 7, 11, 8, 16, 8, 11, 7, 3];
+const LOGO_CORE = Math.floor(LOGO_BARS.length / 2);
+
 function Logo({ playing }: { playing: boolean }) {
   return (
-    <svg className={`logo${playing ? ' is-playing' : ''}`} width="20" height="18" viewBox="0 0 20 18" aria-hidden>
-      {[2, 6.5, 11, 15.5].map((x, i) => (
-        <rect key={x} className="logo-bar" style={{ '--d': `${i * 110}ms` } as CSSProperties} x={x} y="2" width="2.4" height="14" rx="1.2" />
-      ))}
+    <svg className={`logo${playing ? ' is-playing' : ''}`} width="28" height="18" viewBox="0 0 28 18" aria-hidden>
+      {LOGO_BARS.map((h, i) => {
+        const away = Math.abs(i - LOGO_CORE);
+        return (
+          <rect
+            key={i}
+            className={`logo-bar${away === 0 ? ' is-core' : ''}`}
+            style={{ '--d': `${away * 90}ms`, '--o': 1 - away * 0.15 } as CSSProperties}
+            x={2 + i * 3}
+            y={(18 - h) / 2}
+            width="1.8"
+            height={h}
+            rx="0.9"
+          />
+        );
+      })}
     </svg>
   );
 }
@@ -407,7 +423,7 @@ export function App() {
       <div className="room-grain" aria-hidden />
 
       <header className="bar">
-        <span className="brand"><Logo playing={player.playing} />Back then</span>
+        <span className="brand"><Logo playing={player.playing} /><span className="brand-name">Back then</span></span>
         <span className="bar-right">
           <span className={`status${anyLoading ? ' is-busy' : ''}`} role="status" aria-live="polite">
             <i aria-hidden />{statusText}
@@ -433,7 +449,7 @@ export function App() {
       </header>
 
       <section className="ask" aria-label="Search">
-        <p className="ask-eyebrow">Back then. What was said?</p>
+        <p className="ask-eyebrow"><i className="eyebrow-dot" aria-hidden />What was said?</p>
         <label className="prompt">
           <span className="prompt-glyph">ask ›</span>
           <span className="prompt-field">

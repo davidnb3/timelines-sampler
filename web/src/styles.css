@@ -174,24 +174,29 @@ kbd {
   letter-spacing: 0.04em;
 }
 
-.logo-bar {
-  fill: rgb(var(--accent));
-  transform-box: fill-box;
-  transform-origin: 50% 100%;
+/* Lowercase letters make a word look lower than its line box suggests; lift it to sit level with the logo. */
+.brand-name {
+  padding-bottom: 3px;
 }
 
-.logo:not(.is-playing) .logo-bar:nth-child(1) { transform: scaleY(0.45); }
-.logo:not(.is-playing) .logo-bar:nth-child(2) { transform: scaleY(0.9); }
-.logo:not(.is-playing) .logo-bar:nth-child(3) { transform: scaleY(0.65); }
-.logo:not(.is-playing) .logo-bar:nth-child(4) { transform: scaleY(0.3); }
+.logo-bar {
+  fill: rgb(var(--ink) / var(--o));
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+}
 
+.logo-bar.is-core {
+  fill: rgb(var(--accent));
+}
+
+/* While audio plays the bars move, rippling outward from the orange centre bar. */
 .logo.is-playing .logo-bar {
   animation: eq 0.9s ease-in-out infinite alternate;
   animation-delay: var(--d);
 }
 
 @keyframes eq {
-  from { transform: scaleY(0.25); }
+  from { transform: scaleY(0.3); }
   to { transform: scaleY(1); }
 }
 
@@ -316,14 +321,30 @@ kbd {
   color: var(--text-3);
   max-height: 20px;
   overflow: hidden;
+  /* The dot lines up with "ask" below; the extra 8px on the left only gives its glow room inside the clipped box. */
+  position: relative;
+  margin-left: -8px;
+  padding-left: 23px;
   transition: opacity 0.5s var(--ease-out), max-height 0.9s var(--ease-out), margin 0.9s var(--ease-out);
   animation: fade-up 1s 0.15s var(--ease-out) both;
+}
+
+.eyebrow-dot {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin-top: -2.5px;
+  border-radius: 50%;
+  background: rgb(var(--accent));
+  box-shadow: 0 0 6px 1px rgb(var(--accent) / 0.6);
 }
 
 .room[data-phase='active'] .ask-eyebrow {
   opacity: 0;
   max-height: 0;
-  margin: 0;
+  margin: 0 0 0 -8px;
 }
 
 .prompt {
