@@ -35,6 +35,9 @@ export interface VoiceOptions {
   onEnd: (reason: EndReason) => void;
 }
 
+/** Same floor as the export's declick (server/fade.ts), so what you hear is what you save. */
+const DECLICK_S = 0.005;
+
 let current: Voice | null = null;
 
 export class Voice {
@@ -45,6 +48,8 @@ export class Voice {
   private fadeIn: number;
   private fadeOut: number;
   private gain: GainNode | null = null;
+  /** A second gain in series that ramps over a few ms at every start and stop, so neither clicks. */
+  private soft: GainNode | null = null;
   private fadeTimer = 0;
   private source: AudioBufferSourceNode | null = null;
   private startedAt = 0;
@@ -56,8 +61,8 @@ export class Voice {
     this.from = o.from;
     this.to = o.to;
     this.loop = o.loop;
-    this.fadeIn = o.fadeIn ?? 0;
-    this.fadeOut = o.fadeOut ?? 0;
+    this.fadeIn = Math.max(o.fadeIn ?? 0, DECLICK_S);
+    this.fadeOut = Math.max(o.fadeOut ?? 0, DECLICK_S);
     this.onEnd = o.onEnd;
   }
 
@@ -70,11 +75,16 @@ export class Voice {
     const source = ctx.createBufferSource();
     source.buffer = this.buffer;
     const gain = ctx.createGain();
+    const soft = ctx.createGain();
     source.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(soft);
+    soft.connect(ctx.destination);
     this.gain = gain;
+    this.soft = soft;
     this.offset = Math.min(this.to, Math.max(this.from, at));
     const t0 = ctx.currentTime;
+    soft.gain.setValueAtTime(0, t0);
+    soft.gain.linearRampToValueAtTime(1, t0 + DECLICK_S);
     if (this.loop) {
       source.loop = true;
       source.loopStart = this.from;
@@ -153,13 +163,26 @@ export class Voice {
     this.source = null;
     this.clearFades();
     source.onended = null;
+    // Ramp down over a few ms instead of cutting off, then let go of the nodes.
+    const ctx = audioContext();
+    const t = ctx.currentTime;
+    const soft = this.soft;
+    const gain = this.gain;
+    if (soft) {
+      soft.gain.cancelScheduledValues(t);
+      soft.gain.setValueAtTime(soft.gain.value, t);
+      soft.gain.linearRampToValueAtTime(0, t + DECLICK_S);
+    }
     try {
-      source.stop();
+      source.stop(t + DECLICK_S + 0.002);
     } catch {
       // Already stopped.
     }
-    source.disconnect();
-    this.gain?.disconnect();
+    window.setTimeout(() => {
+      source.disconnect();
+      gain?.disconnect();
+      soft?.disconnect();
+    }, 60);
     if (current === this) current = null;
     this.onEnd(reason);
   }

@@ -14,7 +14,7 @@ import { TimelineSwitcher } from './timeline/TimelineSwitcher.tsx';
 import { useTimelines } from './timeline/useTimelines.ts';
 import { StoryPanel } from './story/StoryPanel.tsx';
 import { useStory } from './story/useStory.ts';
-import { selectText, type Fade, type Region } from './trim.ts';
+import { editedHit, type Fade, type Region } from './trim.ts';
 import { usePlayer } from './usePlayer.ts';
 
 interface SourceResult {
@@ -261,18 +261,7 @@ export function App() {
   const trim = useCallback((hit: Hit, region: Region, fades: Fade) => {
     const win = playerRef.current.win;
     if (!win) return;
-    const picked = selectText(win.segments, region);
-    const next: Hit = {
-      ...hit,
-      startMs: Math.round(region.a),
-      endMs: Math.round(region.b),
-      text: picked.text,
-      firstIdx: picked.firstIdx ?? hit.firstIdx,
-      lastIdx: picked.lastIdx ?? hit.lastIdx,
-      // Absent rather than 0, so clips without fades look exactly as they did before fades existed.
-      fadeInMs: fades.inMs > 0 ? fades.inMs : undefined,
-      fadeOutMs: fades.outMs > 0 ? fades.outMs : undefined,
-    };
+    const next = editedHit(hit, region, fades, win.segments);
     setResults((p) => ({ ...p, library: { ...p.library, hits: p.library.hits.map((h) => (h.id === hit.id ? next : h)) } }));
   }, []);
 
@@ -290,11 +279,12 @@ export function App() {
           hit: c.hit,
           entering: saved.entering.has(c.key),
           leaving: saved.leaving.has(c.key),
+          muted: saved.story.muted.includes(c.key),
         })),
-    [saved.clips, saved.entering, saved.leaving],
+    [saved.clips, saved.entering, saved.leaving, saved.story.muted],
   );
 
-  const story = useStory(items);
+  const story = useStory(items, saved.story);
 
   // Opening the story gives the timeline room: the panel grows tall, then returns to its size on close.
   const tallBeforeStory = useRef(false);
@@ -337,15 +327,15 @@ export function App() {
   }, [story.nowIndex, story.clips]);
 
   const isPinned = useCallback((hit: Hit) => {
-    const key = pinKey(hit);
-    return (saved.has(key) && !saved.leaving.has(key)) || flying.has(key);
+    const clip = saved.find(hit);
+    return (!!clip && !saved.leaving.has(clip.key)) || flying.has(pinKey(hit));
   }, [saved, flying]);
 
   /** Adds a clip to the timeline: the camera moves to its date while a dot flies in from `from`. */
   const pin = useCallback(
     async (hit: Hit, from: HTMLElement | null) => {
       const key = pinKey(hit);
-      if (saved.has(key) || flying.has(key)) return;
+      if (saved.find(hit) || flying.has(key)) return;
       const timeline = timelineRef.current;
       if (!timeline || !from || reducedMotion()) {
         saved.add(hit);
@@ -368,11 +358,27 @@ export function App() {
     [saved, flying, items],
   );
 
-  const unpin = useCallback(
-    (hit: Hit) => {
-      const key = pinKey(hit);
+  const unpinKey = useCallback(
+    (key: string) => {
       saved.remove(key);
       setOpenPin((cur) => (cur === key ? null : cur));
+    },
+    [saved],
+  );
+
+  const unpin = useCallback(
+    (hit: Hit) => {
+      const clip = saved.find(hit);
+      if (clip) unpinKey(clip.key);
+    },
+    [saved, unpinKey],
+  );
+
+  /** A pinned clip was trimmed or faded in its popover: keep its place on the timeline, replace its snapshot. */
+  const trimPinned = useCallback(
+    (key: string, hit: Hit, region: Region, fades: Fade) => {
+      const win = playerRef.current.win;
+      if (win) saved.updateClip(key, editedHit(hit, region, fades, win.segments));
     },
     [saved],
   );
@@ -637,7 +643,7 @@ export function App() {
         nowKey={story.nowKey}
         storyOpen={story.open}
         onStory={story.open ? story.close : story.openStory}
-        footer={storyShown ? <StoryPanel story={story} theme={theme} leaving={!story.open} title={activeName} /> : null}
+        footer={storyShown ? <StoryPanel story={story} theme={theme} leaving={!story.open} title={activeName} settings={saved.story} onSettings={saved.setStory} /> : null}
         viewKey={saved.loaded && saved.activeId !== null ? String(saved.activeId) : null}
         titleSlot={
           <TimelineSwitcher
@@ -660,7 +666,8 @@ export function App() {
             theme={theme}
             embedOpen={embedId === item.hit.id}
             onPlay={() => play(item.hit)}
-            onRemove={() => unpin(item.hit)}
+            onTrim={(r, f) => trimPinned(item.key, item.hit, r, f)}
+            onRemove={() => unpinKey(item.key)}
             onClose={() => setOpenPin(null)}
           />
         )}

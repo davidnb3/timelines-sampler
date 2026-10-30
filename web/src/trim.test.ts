@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
-  boundaries, buildPeaks, dragEdge, dragFade, fadeGain, fadeOf, moveRegion, peakBetween, selectText, snapTime, windowFor, type Segment,
+  boundaries, buildPeaks, dragEdge, dragFade, editedHit, fadeGain, fadeOf, moveRegion, peakBetween, selectText, snapTime, windowFor, type Segment,
 } from './trim.ts';
 
 const win = { startMs: 1000, endMs: 11_000 };
@@ -131,5 +131,21 @@ describe('dragFade', () => {
   it('keeps the two fades from overlapping', () => {
     assert.deepEqual(dragFade('in', region, { inMs: 0, outMs: 1000 }, 99_000), { inMs: 3000, outMs: 1000 });
     assert.deepEqual(dragFade('out', region, { inMs: 3500, outMs: 0 }, 0), { inMs: 3500, outMs: 500 });
+  });
+});
+
+describe('editedHit', () => {
+  const hit = { startMs: 1000, endMs: 4000, text: 'old', firstIdx: 1, lastIdx: 1, show: 'X' };
+  const segments = [{ idx: 7, startMs: 5000, endMs: 7000, text: 'New line.' }];
+
+  it('takes the new range, the text inside it and the fades', () => {
+    const next = editedHit(hit, { a: 5000.4, b: 7000 }, { inMs: 120, outMs: 0 }, segments);
+    assert.deepEqual(next, { startMs: 5000, endMs: 7000, text: 'New line.', firstIdx: 7, lastIdx: 7, fadeInMs: 120, fadeOutMs: undefined, show: 'X' });
+  });
+
+  it('keeps the old segment indexes when the new range has no speech', () => {
+    const next = editedHit(hit, { a: 9000, b: 9500 }, { inMs: 0, outMs: 0 }, segments);
+    assert.equal(next.text, '');
+    assert.equal(next.firstIdx, 1);
   });
 });

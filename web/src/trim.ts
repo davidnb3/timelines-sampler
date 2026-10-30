@@ -147,3 +147,27 @@ export function dragFade(which: 'in' | 'out', region: Region, fade: Fade, t: num
   if (which === 'in') return { inMs: Math.round(clampNumber(t - region.a, 0, length - fade.outMs)), outMs: fade.outMs };
   return { inMs: fade.inMs, outMs: Math.round(clampNumber(region.b - t, 0, length - fade.inMs)) };
 }
+
+/**
+ * A clip after the user changed its region or fades: the new range and fades, the transcript text
+ * inside the range, and the indexes of the segments that text came from.
+ */
+export function editedHit<T extends { startMs: number; endMs: number; text: string; firstIdx?: number; lastIdx?: number; fadeInMs?: number; fadeOutMs?: number }>(
+  hit: T,
+  region: Region,
+  fades: Fade,
+  segments: Segment[],
+): T {
+  const picked = selectText(segments, region);
+  return {
+    ...hit,
+    startMs: Math.round(region.a),
+    endMs: Math.round(region.b),
+    text: picked.text,
+    firstIdx: picked.firstIdx ?? hit.firstIdx,
+    lastIdx: picked.lastIdx ?? hit.lastIdx,
+    // Absent rather than 0, so clips without fades look exactly as they did before fades existed.
+    fadeInMs: fades.inMs > 0 ? fades.inMs : undefined,
+    fadeOutMs: fades.outMs > 0 ? fades.outMs : undefined,
+  };
+}

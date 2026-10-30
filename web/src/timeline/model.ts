@@ -154,3 +154,36 @@ export function planView(t: number, existing: number[], current: View, width: nu
   if (x > width * 0.12 && x < width * 0.88) return current;
   return fitView([...existing, t], width);
 }
+
+/**
+ * Keeps dots from sitting on top of each other. `xs` are the natural positions of the clips, in
+ * order. Clips closer than `min` pixels form a group, fanned out evenly around where the group
+ * naturally sits; a final pass makes sure neighbouring groups do not overlap either. `crowded[i]`
+ * says the dot was moved because of company (its label then waits until it is hovered or focused).
+ */
+export function spreadPositions(xs: number[], min: number): { xs: number[]; crowded: boolean[] } {
+  const out = [...xs];
+  const crowded = xs.map(() => false);
+  let start = 0;
+  while (start < xs.length) {
+    let end = start + 1;
+    while (end < xs.length && xs[end]! - xs[end - 1]! < min) end++;
+    const size = end - start;
+    if (size > 1) {
+      const centre = xs.slice(start, end).reduce((sum, x) => sum + x, 0) / size;
+      for (let i = 0; i < size; i++) {
+        out[start + i] = centre + (i - (size - 1) / 2) * min;
+        crowded[start + i] = true;
+      }
+    }
+    start = end;
+  }
+  for (let i = 1; i < out.length; i++) {
+    if (out[i]! - out[i - 1]! < min) {
+      out[i] = out[i - 1]! + min;
+      crowded[i] = true;
+      crowded[i - 1] = true;
+    }
+  }
+  return { xs: out, crowded };
+}

@@ -10,7 +10,7 @@ import { expandWindow, searchLibrary } from './sources/library.ts';
 import { searchTv } from './sources/gdelt.ts';
 import {
   addClip, createTimeline, deleteTimeline, duplicateTimeline, getTimeline, listTimelines, removeClip, renameTimeline,
-  TimelineError,
+  TimelineError, setStory, updateClip,
 } from './timelines.ts';
 import { modelAvailable } from './whisper.ts';
 
@@ -95,7 +95,13 @@ async function handleTimelines(req: http.IncomingMessage, res: http.ServerRespon
   }
   if (sub === undefined) {
     if (method === 'GET') return sendJson(res, 200, getTimeline(conn, id));
-    if (method === 'PATCH') return sendJson(res, 200, renameTimeline(conn, id, (await body())?.name));
+    if (method === 'PATCH') {
+      // A request can rename, change the story settings, or both.
+      const b = await body();
+      if (b && 'story' in b) setStory(conn, id, b.story);
+      if (!b || 'name' in b || !('story' in b)) return sendJson(res, 200, renameTimeline(conn, id, b?.name));
+      return sendJson(res, 200, listTimelines(conn).find((t) => t.id === id));
+    }
     if (method === 'DELETE') {
       deleteTimeline(conn, id);
       return sendJson(res, 200, { ok: true });
@@ -106,6 +112,7 @@ async function handleTimelines(req: http.IncomingMessage, res: http.ServerRespon
   if (sub === 'clips') {
     if (method === 'POST') return sendJson(res, 201, addClip(conn, id, await body()));
     if (method === 'DELETE') return sendJson(res, 200, removeClip(conn, id, url.searchParams.get('key') ?? ''));
+    if (method === 'PATCH') return sendJson(res, 200, updateClip(conn, id, url.searchParams.get('key') ?? '', (await body())?.hit));
   }
   throw notAllowed();
 }
@@ -181,6 +188,7 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse, ur
       Number(p.get('end')),
       format,
       { inMs: intParam(p.get('fi'), 0, 0, MAX_FADE_MS), outMs: intParam(p.get('fo'), 0, 0, MAX_FADE_MS) },
+      p.get('raw') === '1',
     );
     const name = (p.get('name') ?? 'clip').replace(/[^\w .-]+/g, '').slice(0, 80) || 'clip';
     const extra: Record<string, string> = p.get('download')

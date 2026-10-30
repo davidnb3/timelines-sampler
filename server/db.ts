@@ -69,12 +69,19 @@ CREATE VIRTUAL TABLE IF NOT EXISTS segments_fts USING fts5(
 
 let db: DatabaseSync | undefined;
 
+/** Adds columns that older databases do not have yet. Only ever additive. */
+function migrate(conn: DatabaseSync): void {
+  const columns = conn.prepare('PRAGMA table_info(timelines)').all() as unknown as { name: string }[];
+  if (!columns.some((c) => c.name === 'story')) conn.exec('ALTER TABLE timelines ADD COLUMN story TEXT');
+}
+
 export function openDb(file: string = DB_PATH): DatabaseSync {
   if (db && file === DB_PATH) return db;
   if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
   const conn = new DatabaseSync(file);
   conn.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
   conn.exec(SCHEMA);
+  migrate(conn);
   if (file === DB_PATH) db = conn;
   return conn;
 }

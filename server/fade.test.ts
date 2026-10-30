@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { clampFade, fadeFilters, hasFade } from './fade.ts';
+import { clampFade, DECLICK_MS, fadeFilters, hasFade, withDeclick } from './fade.ts';
 
 describe('clampFade', () => {
   it('rounds and bounds each fade', () => {
@@ -35,5 +35,19 @@ describe('hasFade', () => {
     assert.equal(hasFade(undefined), false);
     assert.equal(hasFade({ inMs: 0, outMs: 0 }), false);
     assert.equal(hasFade({ inMs: 0, outMs: 1 }), true);
+  });
+});
+
+describe('withDeclick', () => {
+  it('puts a short fade on both ends of a clip that has none', () => {
+    assert.deepEqual(withDeclick({ inMs: 0, outMs: 0 }, 3000), { inMs: DECLICK_MS, outMs: DECLICK_MS });
+  });
+
+  it('keeps a longer fade the user set', () => {
+    assert.deepEqual(withDeclick({ inMs: 120, outMs: 0 }, 3000), { inMs: 120, outMs: DECLICK_MS });
+  });
+
+  it('shrinks both on a very short clip', () => {
+    assert.deepEqual(withDeclick({ inMs: 0, outMs: 0 }, 8), { inMs: 4, outMs: 4 });
   });
 });

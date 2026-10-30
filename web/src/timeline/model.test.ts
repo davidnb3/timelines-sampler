@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
-  LEVELS, YEAR_MS, alignedTimes, fitView, formatFocus, levelFor, parseDate, pinKey, pinTime, planView, tickLabel, utc,
+  LEVELS, YEAR_MS, spreadPositions, alignedTimes, fitView, formatFocus, levelFor, parseDate, pinKey, pinTime, planView, tickLabel, utc,
 } from './model.ts';
 
 const year = (t: number) => new Date(t).getUTCFullYear();
@@ -132,5 +132,31 @@ describe('fitView and planView', () => {
   it('centres on the first clip', () => {
     const t = utc(1955, 3, 24);
     assert.equal(planView(t, [], { center: Date.now(), ppy: 60 }, 1400).center, t);
+  });
+});
+
+describe('spreadPositions', () => {
+  it('leaves well separated dots alone', () => {
+    assert.deepEqual(spreadPositions([0, 100, 300], 20), { xs: [0, 100, 300], crowded: [false, false, false] });
+  });
+
+  it('fans out dots on the same spot, centred on where they were', () => {
+    const { xs, crowded } = spreadPositions([200, 200, 200], 20);
+    assert.deepEqual(xs, [180, 200, 220]);
+    assert.deepEqual(crowded, [true, true, true]);
+  });
+
+  it('spreads a close pair evenly', () => {
+    assert.deepEqual(spreadPositions([100, 108], 20).xs, [94, 114]);
+  });
+
+  it('keeps neighbouring groups from overlapping', () => {
+    const { xs } = spreadPositions([100, 100, 100, 130], 20);
+    for (let i = 1; i < xs.length; i++) assert.ok(xs[i]! - xs[i - 1]! >= 20 - 1e-9, `gap ${i}`);
+  });
+
+  it('handles none and one', () => {
+    assert.deepEqual(spreadPositions([], 20), { xs: [], crowded: [] });
+    assert.deepEqual(spreadPositions([50], 20), { xs: [50], crowded: [false] });
   });
 });

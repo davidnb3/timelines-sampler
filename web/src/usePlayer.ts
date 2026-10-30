@@ -107,7 +107,7 @@ export function usePlayer(): Player {
         try {
           const span = windowFor(hit.startMs, hit.endMs);
           const [buffer, segments] = await Promise.all([
-            decodeUrl(rangeUrl(hit.ref, span.startMs, span.endMs), ctl.signal),
+            decodeUrl(rangeUrl(hit.ref, span.startMs, span.endMs, 'mp3', undefined, true), ctl.signal),
             hit.episodeId != null ? fetchSegments(hit.episodeId, span.startMs, span.endMs, ctl.signal).catch(() => []) : [],
           ]);
           if (ctl.signal.aborted) return;

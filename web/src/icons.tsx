@@ -91,3 +91,11 @@ export const Copy = ({ size = 14, ...p }: P & { size?: number }) => (
 export const Trash = ({ size = 14, ...p }: P & { size?: number }) => (
   <svg {...base(size)} {...p}><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" /></svg>
 );
+
+export const Eye = ({ size = 14, ...p }: P & { size?: number }) => (
+  <svg {...base(size)} {...p}><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" /><circle cx="12" cy="12" r="2.8" /></svg>
+);
+
+export const EyeOff = ({ size = 14, ...p }: P & { size?: number }) => (
+  <svg {...base(size)} {...p}><path d="M3 3l18 18M10.6 6a9.6 9.6 0 0 1 1.4-.1c6 0 9.5 6.1 9.5 6.1a16 16 0 0 1-2.7 3.4M6.3 7.3A15.6 15.6 0 0 0 2.5 12S6 18.5 12 18.5a9 9 0 0 0 3.6-.8M9.9 9.9a2.8 2.8 0 0 0 4 4" /></svg>
+);

@@ -32,3 +32,11 @@ export function fadeFilters(fade: Fade, lengthMs: number): string[] {
   if (fade.outMs > 0) filters.push(`afade=t=out:st=${seconds(lengthMs - fade.outMs)}:d=${seconds(fade.outMs)}`);
   return filters;
 }
+
+/** The shortest fade put on every exported cut, so a cut that lands mid-waveform does not click. */
+export const DECLICK_MS = 5;
+
+/** A clip's fades with the declick floor applied to both ends. */
+export function withDeclick(fade: Fade, lengthMs: number): Fade {
+  return clampFade(Math.max(fade.inMs, DECLICK_MS), Math.max(fade.outMs, DECLICK_MS), lengthMs);
+}

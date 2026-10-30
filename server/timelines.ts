@@ -29,8 +29,22 @@ export interface TimelineClip {
   savedAt: number;
 }
 
+/**
+ * How a timeline's story is put together: the order of its clips (keys; clips not listed follow in
+ * date order), the clips left out, and the silence between clips.
+ */
+export interface StorySettings {
+  order: string[];
+  muted: string[];
+  gapMs: number;
+}
+
+export const DEFAULT_GAP_MS = 400;
+const MAX_GAP_MS = 5000;
+
 export interface TimelineDetail extends TimelineInfo {
   clips: TimelineClip[];
+  story: StorySettings;
 }
 
 export const MAX_NAME = 60;
@@ -58,6 +72,15 @@ export function validateClip(raw: unknown): TimelineClip {
   if (JSON.stringify(hit).length > MAX_HIT_JSON) throw new TimelineError(413, 'Clip is too large');
   const savedAt = Number.isFinite(c.savedAt) ? (c.savedAt as number) : Date.now();
   return { key: c.key, hit: hit as TimelineClip['hit'], savedAt };
+}
+
+/** Checks story settings from a request, dropping what is unusable. */
+export function cleanStory(raw: unknown): StorySettings {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const keys = (v: unknown) =>
+    Array.isArray(v) ? [...new Set(v.filter((k): k is string => typeof k === 'string' && k.length > 0 && k.length <= MAX_KEY))].slice(0, MAX_CLIPS) : [];
+  const gap = typeof r.gapMs === 'number' && Number.isFinite(r.gapMs) ? Math.round(r.gapMs) : DEFAULT_GAP_MS;
+  return { order: keys(r.order), muted: keys(r.muted), gapMs: Math.min(MAX_GAP_MS, Math.max(0, gap)) };
 }
 
 function tx<T>(conn: DatabaseSync, fn: () => T): T {
@@ -108,7 +131,21 @@ export function getTimeline(conn: DatabaseSync, id: number): TimelineDetail {
   const rows = conn
     .prepare('SELECT key, hit, saved_at AS savedAt FROM timeline_clips WHERE timeline_id = ? ORDER BY saved_at, key')
     .all(id) as unknown as { key: string; hit: string; savedAt: number }[];
-  return { ...head, clips: rows.map((r) => ({ key: r.key, hit: JSON.parse(r.hit) as TimelineClip['hit'], savedAt: r.savedAt })) };
+  const stored = conn.prepare('SELECT story FROM timelines WHERE id = ?').get(id) as { story: string | null };
+  let story: StorySettings;
+  try {
+    story = cleanStory(stored.story ? JSON.parse(stored.story) : null);
+  } catch {
+    story = cleanStory(null);
+  }
+  return { ...head, story, clips: rows.map((r) => ({ key: r.key, hit: JSON.parse(r.hit) as TimelineClip['hit'], savedAt: r.savedAt })) };
+}
+
+export function setStory(conn: DatabaseSync, id: number, raw: unknown): TimelineInfo {
+  info(conn, id);
+  conn.prepare('UPDATE timelines SET story = ? WHERE id = ?').run(JSON.stringify(cleanStory(raw)), id);
+  touch(conn, id);
+  return info(conn, id);
 }
 
 export function renameTimeline(conn: DatabaseSync, id: number, rawName: unknown): TimelineInfo {
@@ -130,7 +167,9 @@ export function deleteTimeline(conn: DatabaseSync, id: number): void {
 /** A copy with its own clips, to start a different story from the same material. */
 export function duplicateTimeline(conn: DatabaseSync, id: number): TimelineInfo {
   const source = getTimeline(conn, id);
-  return createTimeline(conn, `${source.name} copy`.slice(0, MAX_NAME), source.clips);
+  const copy = createTimeline(conn, `${source.name} copy`.slice(0, MAX_NAME), source.clips);
+  conn.prepare('UPDATE timelines SET story = ? WHERE id = ?').run(JSON.stringify(source.story), copy.id);
+  return copy;
 }
 
 /** Adds a clip; adding one that is already there changes nothing. */
@@ -148,6 +187,16 @@ export function addClip(conn: DatabaseSync, id: number, rawClip: unknown): Timel
 export function removeClip(conn: DatabaseSync, id: number, key: string): TimelineInfo {
   info(conn, id);
   conn.prepare('DELETE FROM timeline_clips WHERE timeline_id = ? AND key = ?').run(id, key);
+  touch(conn, id);
+  return info(conn, id);
+}
+
+/** Replaces the stored snapshot of a clip (trimmed, faded) without changing its identity in the timeline. */
+export function updateClip(conn: DatabaseSync, id: number, key: string, rawHit: unknown): TimelineInfo {
+  const clip = validateClip({ key, hit: rawHit });
+  info(conn, id);
+  const { changes } = conn.prepare('UPDATE timeline_clips SET hit = ? WHERE timeline_id = ? AND key = ?').run(JSON.stringify(clip.hit), id, key);
+  if (Number(changes) === 0) throw new TimelineError(404, 'Clip not found in this timeline');
   touch(conn, id);
   return info(conn, id);
 }

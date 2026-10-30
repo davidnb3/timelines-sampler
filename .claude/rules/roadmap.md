@@ -4,7 +4,7 @@ Read this before starting work. It says what is finished (do not redo it), what 
 (do not re-argue it), and what is still open, in priority order. Update it when something is
 finished or decided, in the same change. Architecture and commands live in `CLAUDE.md`.
 
-Last updated: 2026-11-02.
+Last updated: 2026-11-03.
 
 ## How to work in this repo
 
@@ -31,6 +31,7 @@ Last updated: 2026-11-02.
 - Search: phrase, then AND, then OR, ranked, topic filter, context expansion. Live GDELT TV caption search (National market only), stream-only playback through the Internet Archive embed.
 - UI: idle and active phases, result cards with inline waveform, star or download flies a clip onto the timeline, pan, zoom, fit, popover per pinned clip, keyboard shortcuts, light and dark themes, phone-width layout.
 - **Sampler features (2026-10-31):** trim on the waveform like an Ableton clip (edges drag outward too, middle slides, snap to sentence boundaries, Alt for free placement; the quote follows the selection), loop, a drag handle that drops the clip as a WAV into Finder or a DAW (Chromium `DownloadURL`), and **stories**: "Play story" on the timeline builds one waveform from the pinned library clips in date order (growing out from the middle while loading), plays it with the camera following, and downloads it as WAV or MP3 (`/api/bounce`).
+- **Sampler polish (2026-11-03):** a 5 ms declick fade on every cut (export and playback); same-day clips fan out on the timeline; trim and fade inside the pinned-clip popover (the clip keeps its key); story controls: reorder (drag the chips), leave clips out, set the gap, saved per timeline.
 - **Timeline collections (2026-11-02):** timelines live in SQLite (`timelines`, `timeline_clips`), with a switcher in the dock (switch, new, rename, duplicate, delete) and a one-time import of the clips a browser had saved locally. The story and its downloads follow the open timeline and are named after it.
 - **Fades (2026-11-01):** drag the square at the top of a trim edge to fade in or out (Ableton-style: diagonal gain line, tapered waveform, shaded corner). They are heard while editing, saved with the clip, applied to downloads, drag-out files and stories. The shrink button on the timeline now also closes the story, which fades out.
 - Fast clip playback: redirects resolved once, then one HTTP Range request per clip (details below). Cuts take about 1 s on Internet Archive files and about 0.15 s on warm podcast files, at any position in the episode.
@@ -39,11 +40,8 @@ Last updated: 2026-11-02.
 
 ### 1. Follow-ups to the sampler features
 
-- **Renewing the story (the owner asked for this, "later"):** a timeline should not be limited to one story. When it holds a lot of content, the owner wants to start a new story from the same timeline: a selection and order of its clips, saved and replayable, with the timeline itself unchanged. The data model is ready for it: clips belong to a timeline, and a story is currently just all library clips of the timeline in date order (`useStory`, `/api/bounce`). Likely shape: a `stories` table (timeline id, name, ordered clip keys, gap) and a story picker in the story panel. Reordering and muting clips (below) belong with it.
-- **Trim inside the pinned-clip popover.** Trimming works in result cards only; the popover waveform is read-only. Editing a pinned clip would update the saved clip's range (its key includes the range, so keep the original key to avoid re-triggering the arrival animation).
-- **Clips from the same day sit on top of each other** on the timeline (same x). Spread them a little or stack them.
-- **Fade curves and defaults:** fades are linear (like Ableton's default). Curve shapes (equal-power, exponential) and a tiny automatic fade on every cut, to avoid clicks when a cut lands mid-waveform, are not done.
-- **Reorder or mute clips inside a story** (today the order is the date order and every library clip plays), per-clip gain, and a settable gap (it is the fixed `STORY_GAP_MS`, 400 ms).
+- **Renewing the story (the owner asked for this, "later"):** a timeline should not be limited to one story. When it holds a lot of content, the owner wants to start a new story from the same timeline: a selection and order of its clips, saved and replayable, with the timeline itself unchanged. The data model is ready for it: clips belong to a timeline, and a story is currently the timeline's library clips in the order, muting and gap saved on the timeline itself (its `story` column: `order`, `muted`, `gapMs`). Renewing would turn that column into separate story rows, several per timeline, plus a picker. Likely shape: a `stories` table (timeline id, name, ordered clip keys, gap) and a story picker in the story panel.
+- **Fade curves:** fades are linear (like Ableton's default). Curve shapes (equal-power, exponential) are not done. Per-clip gain is not done either.
 - **Native drag into the DAW** once wrapped in Tauri/Electron (browsers other than Chromium cannot do it).
 - **Plugins the owner installed (not loaded in the session that built the sampler features, so unused):** *Audiorective* (Web Audio toolkit: reactive primitives, scheduling, parameter automation, DSP effects) fits per-clip effects (reverse, pitch, filter, reverb sends) and a proper scheduler for stories. *AudioPod* (cloud audio tools: speaker-labelled transcription, stem splitting, noise removal, speaker separation, format conversion) fits cleaning old-time-radio audio, isolating a voice from music, and speaker labels. AudioPod sends audio to an external service, so ask before using it.
 

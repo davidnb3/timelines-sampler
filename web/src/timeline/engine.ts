@@ -1,5 +1,5 @@
 import {
-  LEVELS, MAX_PPY, MIN_PPY, YEAR_MS, alignedTimes, clamp, clampTime, fitView, formatFocus, levelFor, tickLabel,
+  LEVELS, MAX_PPY, MIN_PPY, YEAR_MS, alignedTimes, clamp, clampTime, fitView, formatFocus, levelFor, spreadPositions, tickLabel,
   type View,
 } from './model.ts';
 
@@ -188,23 +188,31 @@ export function createEngine(o: EngineOptions): Engine {
     Reflect.set(ctx, 'letterSpacing', '0px');
   }
 
+  /** The shortest distance between two dots on the line: same-day clips fan out to this spacing. */
+  const MIN_DOT_GAP = 22;
+
   function placeNodes() {
     const cx = w / 2;
-    for (const n of o.nodes()) {
+    const list = o.nodes();
+    // Clips from the same day share a date, so they would sit on one spot: spread them apart.
+    const spread = spreadPositions(list.map((n) => xOf(n.t)), MIN_DOT_GAP);
+    list.forEach((n, i) => {
       const el = n.el;
-      if (!el) continue;
-      const x = xOf(n.t);
+      if (!el) return;
+      const x = spread.xs[i]!;
       const visible = x > -240 && x < w + 240;
       const was = el.style.visibility;
       if (visible && was !== 'visible') el.style.visibility = 'visible';
       else if (!visible && was !== 'hidden') el.style.visibility = 'hidden';
-      if (!visible) continue;
+      if (!visible) return;
       el.style.transform = `translate3d(${x.toFixed(2)}px,0,0)`;
       const prox = gauss(x - cx, 110);
       el.style.setProperty('--prox', prox.toFixed(3));
       const near = prox > 0.6 ? 'true' : 'false';
       if (el.dataset.near !== near) el.dataset.near = near;
-    }
+      const crowd = spread.crowded[i] ? 'true' : 'false';
+      if (el.dataset.crowd !== crowd) el.dataset.crowd = crowd;
+    });
   }
 
   function frame(now: number) {
@@ -269,9 +277,11 @@ export function createEngine(o: EngineOptions): Engine {
   }
 
   function flyTo(view: Partial<View> & { center: number }, ms?: number): Promise<void> {
+    // Keep the zoom the camera was heading for, not a half-way value, when one flight interrupts another.
+    const heading = anim ? Math.exp(anim.z1) : ppyNow();
     cancelAnim();
     const c1 = clampTime(view.center);
-    const z1 = clamp(Math.log(view.ppy ?? ppyNow()), LN_MIN, LN_MAX);
+    const z1 = clamp(Math.log(view.ppy ?? heading), LN_MIN, LN_MAX);
     velPx = 0;
     const distPx = (Math.abs(c1 - center) / YEAR_MS) * Math.exp(Math.min(ln, z1));
     if (o.reducedMotion() || (distPx < 0.5 && Math.abs(z1 - ln) < 0.001)) {

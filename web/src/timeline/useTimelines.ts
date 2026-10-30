@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Hit } from '../api.ts';
+import { DEFAULT_STORY, type StorySettings } from '../story/settings.ts';
 import { pinKey } from './model.ts';
 import { timelinesApi, type SavedClip, type TimelineInfo } from './timelinesApi.ts';
 
@@ -66,6 +67,7 @@ export function useTimelines() {
   const [timelines, setTimelines] = useState<TimelineInfo[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [clips, setClips] = useState<SavedClip[]>([]);
+  const [story, setStoryState] = useState<StorySettings>(DEFAULT_STORY);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [entering, setEntering] = useState<Set<string>>(new Set());
@@ -74,6 +76,8 @@ export function useTimelines() {
   const active = useRef<number | null>(null);
   const clipsRef = useRef(clips);
   clipsRef.current = clips;
+  const storyRef = useRef(story);
+  storyRef.current = story;
   const started = useRef(false);
   const errorTimer = useRef(0);
 
@@ -93,6 +97,7 @@ export function useTimelines() {
     active.current = id;
     rememberActive(id);
     setClips(detail.clips);
+    setStoryState(detail.story ?? DEFAULT_STORY);
     setActiveId(id);
     setLoaded(true);
   }, []);
@@ -125,14 +130,21 @@ export function useTimelines() {
     })();
   }, [open, fail]);
 
-  const has = useCallback((key: string) => clips.some((c) => c.key === key), [clips]);
+  /** The saved clip that has this hit's range and fades, if any. A saved clip keeps its own key when trimmed later. */
+  const find = useCallback(
+    (hit: Hit): SavedClip | undefined => {
+      const key = pinKey(hit);
+      return clips.find((c) => pinKey(c.hit) === key);
+    },
+    [clips],
+  );
 
   const add = useCallback(
     (hit: Hit) => {
       const id = active.current;
       if (id === null) return;
       const key = pinKey(hit);
-      if (clipsRef.current.some((c) => c.key === key)) return;
+      if (clipsRef.current.some((c) => pinKey(c.hit) === key)) return;
       const clip: SavedClip = { key, hit, savedAt: Date.now() };
       setClips((cur) => (cur.some((c) => c.key === key) ? cur : [...cur, clip]));
       setEntering((s) => withKey(s, key, true));
@@ -164,6 +176,36 @@ export function useTimelines() {
       }, LEAVE_MS);
     },
     [bump, fail, open],
+  );
+
+  /** The clip was trimmed or faded after pinning: keep its place and replace its snapshot. */
+  const updateClip = useCallback(
+    (key: string, hit: Hit) => {
+      const id = active.current;
+      if (id === null) return;
+      const previous = clipsRef.current.find((c) => c.key === key)?.hit;
+      setClips((cur) => cur.map((c) => (c.key === key ? { ...c, hit } : c)));
+      timelinesApi.updateClip(id, key, hit).catch((err) => {
+        if (previous && active.current === id) setClips((cur) => cur.map((c) => (c.key === key ? { ...c, hit: previous } : c)));
+        fail(err);
+      });
+    },
+    [fail],
+  );
+
+  /** Order, muted clips and gap of the open timeline's story. */
+  const setStory = useCallback(
+    (next: StorySettings) => {
+      const id = active.current;
+      if (id === null) return;
+      const previous = storyRef.current;
+      setStoryState(next);
+      timelinesApi.setStory(id, next).catch((err) => {
+        if (active.current === id) setStoryState(previous);
+        fail(err);
+      });
+    },
+    [fail],
   );
 
   const switchTo = useCallback(
@@ -235,7 +277,7 @@ export function useTimelines() {
   useEffect(() => () => window.clearTimeout(errorTimer.current), []);
 
   return {
-    timelines, activeId, clips, loaded, error, entering, leaving, has,
-    add, remove, switchTo, createTimeline, renameTimeline, duplicateTimeline, deleteTimeline,
+    timelines, activeId, clips, story, setStory, loaded, error, entering, leaving, find,
+    add, updateClip, remove, switchTo, createTimeline, renameTimeline, duplicateTimeline, deleteTimeline,
   };
 }

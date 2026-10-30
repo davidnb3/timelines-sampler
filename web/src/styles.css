@@ -119,7 +119,7 @@ kbd {
 }
 
 .room[data-dock='tall'] {
-  --dock-h: min(58dvh, 540px);
+  --dock-h: min(64dvh, 600px);
 }
 
 .room-bg {

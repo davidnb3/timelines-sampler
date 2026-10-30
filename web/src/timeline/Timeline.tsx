@@ -20,6 +20,8 @@ export interface TimelineItem {
   hit: Hit;
   entering: boolean;
   leaving: boolean;
+  /** Left out of the story. */
+  muted?: boolean;
 }
 
 export interface TimelineHandle {
@@ -178,7 +180,7 @@ export function Timeline({ ref, items, theme, tall, onToggleTall, openKey, onOpe
                 if (el) nodeEls.current.set(item.key, el);
                 else nodeEls.current.delete(item.key);
               }}
-              className={`node${item.entering ? ' is-entering' : ''}${item.leaving ? ' is-leaving' : ''}${open ? ' is-open' : ''}${item.key === nowKey ? ' is-now' : ''}`}
+              className={`node${item.entering ? ' is-entering' : ''}${item.leaving ? ' is-leaving' : ''}${open ? ' is-open' : ''}${item.key === nowKey ? ' is-now' : ''}${item.muted ? ' is-muted' : ''}`}
               style={{ '--tier': item.tier, '--i': Math.min(i, 12) } as CSSProperties}
             >
               <span className="node-stem" />
@@ -190,7 +192,7 @@ export function Timeline({ ref, items, theme, tall, onToggleTall, openKey, onOpe
                 onClick={() => openNode(item)}
               />
               <span className="node-label">
-                <span className="node-meta"><b>{item.no}</b>{formatDate(item.hit.date) ?? 'undated'}</span>
+                <span className="node-meta"><b>{item.no}</b><span className="node-date">{formatDate(item.hit.date) ?? 'undated'}</span></span>
                 <span className="node-name">{item.hit.show}</span>
               </span>
               {open && <div className="node-pop" role="dialog" aria-label={`${item.hit.show} clip`} data-no-pan>{renderPopover(item)}</div>}

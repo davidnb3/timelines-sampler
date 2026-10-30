@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { CLIP_DIR, USER_AGENT } from './config.ts';
 import { getEpisode } from './db.ts';
-import { clampFade, fadeFilters, hasFade, type Fade } from './fade.ts';
+import { clampFade, fadeFilters, hasFade, NO_FADE, withDeclick, type Fade } from './fade.ts';
 import { cbrLayout, id3Length } from './mp3.ts';
 import { inputFormatArgs, run } from './whisper.ts';
 
@@ -96,6 +96,8 @@ export async function cutClip(
   endMs: number,
   format: ClipFormat,
   fadeRequest?: Fade,
+  /** Skip the automatic declick fade: the editor loads the audio around a clip as it is. */
+  raw = false,
 ): Promise<string> {
   const original = resolveRef(conn, ref);
   if (!original) throw new ClipError(404, 'Unknown clip reference');
@@ -105,9 +107,12 @@ export async function cutClip(
   if (endMs - startMs > MAX_CLIP_MS) throw new ClipError(400, 'Clip is longer than 10 minutes');
 
   fs.mkdirSync(CLIP_DIR, { recursive: true });
-  const fade = hasFade(fadeRequest) ? clampFade(fadeRequest.inMs, fadeRequest.outMs, endMs - startMs) : undefined;
-  // Clips without fades keep the cache keys they always had.
-  const fadeKey = hasFade(fade) ? `|fade${fade.inMs}-${fade.outMs}` : '';
+  const length = endMs - startMs;
+  const fade = raw
+    ? hasFade(fadeRequest) ? clampFade(fadeRequest.inMs, fadeRequest.outMs, length) : undefined
+    : withDeclick(fadeRequest ?? NO_FADE, length);
+  // Raw clips without fades keep the cache keys they always had; declicked ones get their own.
+  const fadeKey = hasFade(fade) ? `|${raw ? 'fade' : 'dc'}${fade.inMs}-${fade.outMs}` : '';
   const key = crypto.createHash('sha1').update(`${original}|${startMs}|${endMs}|${format}${fadeKey}`).digest('hex').slice(0, 24);
   const out = path.join(CLIP_DIR, `${key}.${format}`);
   if (fs.existsSync(out)) return out;

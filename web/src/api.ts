@@ -56,8 +56,17 @@ export function clipUrl(hit: Hit, fmt: ClipFormat, download = false): string {
 }
 
 /** The same clip endpoint with explicit bounds: the editor loads a window wider than the clip. */
-export function rangeUrl(ref: string, startMs: number, endMs: number, fmt: ClipFormat = 'mp3', fade?: { inMs: number; outMs: number }): string {
+export function rangeUrl(
+  ref: string,
+  startMs: number,
+  endMs: number,
+  fmt: ClipFormat = 'mp3',
+  fade?: { inMs: number; outMs: number },
+  /** The audio as it is, without the automatic declick fade (what the editor loads). */
+  raw = false,
+): string {
   const params = new URLSearchParams({ ref, start: String(Math.round(startMs)), end: String(Math.round(endMs)), fmt });
+  if (raw) params.set('raw', '1');
   if (fade?.inMs) params.set('fi', String(fade.inMs));
   if (fade?.outMs) params.set('fo', String(fade.outMs));
   return `/api/clip?${params}`;
@@ -79,11 +88,11 @@ export interface StoryClip {
   fo?: number;
 }
 
-/** The silence between clips, in the story player and in the bounced file alike. */
+/** The default silence between clips of a story; each timeline can set its own. */
 export const STORY_GAP_MS = 400;
 
-export function bounceUrl(clips: StoryClip[], fmt: ClipFormat, name = 'Back then story', download = true): string {
-  const params = new URLSearchParams({ clips: JSON.stringify(clips), gap: String(STORY_GAP_MS), fmt, name });
+export function bounceUrl(clips: StoryClip[], fmt: ClipFormat, name = 'Back then story', gapMs = STORY_GAP_MS, download = true): string {
+  const params = new URLSearchParams({ clips: JSON.stringify(clips), gap: String(gapMs), fmt, name });
   if (download) params.set('download', '1');
   return `/api/bounce?${params}`;
 }

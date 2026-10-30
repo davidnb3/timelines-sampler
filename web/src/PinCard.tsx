@@ -5,6 +5,7 @@ import { startClipDrag } from './dragClip.ts';
 import { Close, Download, External, Grip, Pause, Play, Star } from './icons.tsx';
 import { Quote } from './ResultCard.tsx';
 import type { Theme } from './theme.ts';
+import type { Fade, Region } from './trim.ts';
 import type { Player } from './usePlayer.ts';
 
 interface Props {
@@ -14,12 +15,14 @@ interface Props {
   theme: Theme;
   embedOpen: boolean;
   onPlay: () => void;
+  /** The region or its fades were changed on the waveform and let go. */
+  onTrim: (region: Region, fades: Fade) => void;
   onRemove: () => void;
   onClose: () => void;
 }
 
 /** A clip pinned on the timeline, shown in the popover that opens from its node. */
-export function PinCard({ hit, no, player, theme, embedOpen, onPlay, onRemove, onClose }: Props) {
+export function PinCard({ hit, no, player, theme, embedOpen, onPlay, onTrim, onRemove, onClose }: Props) {
   const isTv = hit.source === 'tv';
   const isActive = isTv ? embedOpen : player.active?.id === hit.id;
   const isPlaying = isTv ? embedOpen : isActive && player.playing;
@@ -46,7 +49,20 @@ export function PinCard({ hit, no, player, theme, embedOpen, onPlay, onRemove, o
 
       {!isTv && isActive && player.win && player.region && (
         <div className="pin-wave">
-          <ClipEditor win={player.win} region={player.region} fades={player.fades} playing={player.playing} theme={theme} position={player.position} editable={false} height={76} onSeek={player.seek} />
+          <ClipEditor
+            win={player.win}
+            region={player.region}
+            fades={player.fades}
+            playing={player.playing}
+            theme={theme}
+            position={player.position}
+            height={84}
+            onChange={(edit, commit) => {
+              player.setEdit(edit, commit);
+              if (commit) onTrim(edit.region, edit.fades);
+            }}
+            onSeek={player.seek}
+          />
         </div>
       )}
 
