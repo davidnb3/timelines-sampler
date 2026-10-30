@@ -4,7 +4,7 @@ Read this before starting work. It says what is finished (do not redo it), what 
 (do not re-argue it), and what is still open, in priority order. Update it when something is
 finished or decided, in the same change. Architecture and commands live in `CLAUDE.md`.
 
-Last updated: 2026-11-01.
+Last updated: 2026-11-02.
 
 ## How to work in this repo
 
@@ -23,7 +23,7 @@ Last updated: 2026-11-01.
 - **UI is finished and approved:** a dark room, a timeline of saved clips pinned by recording date, a prompt that moves up when you search, light theme as "lights on". Name: Back then. Logo: the symmetric nine-bar pulse with an orange centre bar. Do not redesign unless asked.
 - **No whole-episode downloads for clipping.** It does not scale (tens or hundreds of episodes). Clips are cut from byte ranges (see below).
 - **Web app first.** A Tauri or Electron wrapper comes later and should need minimal work.
-- **Saved clips are per browser** (localStorage) for now.
+- **Timelines are saved on the server** (SQLite) as named collections; one timeline is one story. The browser only remembers which one is open.
 
 ## Done
 
@@ -31,6 +31,7 @@ Last updated: 2026-11-01.
 - Search: phrase, then AND, then OR, ranked, topic filter, context expansion. Live GDELT TV caption search (National market only), stream-only playback through the Internet Archive embed.
 - UI: idle and active phases, result cards with inline waveform, star or download flies a clip onto the timeline, pan, zoom, fit, popover per pinned clip, keyboard shortcuts, light and dark themes, phone-width layout.
 - **Sampler features (2026-10-31):** trim on the waveform like an Ableton clip (edges drag outward too, middle slides, snap to sentence boundaries, Alt for free placement; the quote follows the selection), loop, a drag handle that drops the clip as a WAV into Finder or a DAW (Chromium `DownloadURL`), and **stories**: "Play story" on the timeline builds one waveform from the pinned library clips in date order (growing out from the middle while loading), plays it with the camera following, and downloads it as WAV or MP3 (`/api/bounce`).
+- **Timeline collections (2026-11-02):** timelines live in SQLite (`timelines`, `timeline_clips`), with a switcher in the dock (switch, new, rename, duplicate, delete) and a one-time import of the clips a browser had saved locally. The story and its downloads follow the open timeline and are named after it.
 - **Fades (2026-11-01):** drag the square at the top of a trim edge to fade in or out (Ableton-style: diagonal gain line, tapered waveform, shaded corner). They are heard while editing, saved with the clip, applied to downloads, drag-out files and stories. The shrink button on the timeline now also closes the story, which fades out.
 - Fast clip playback: redirects resolved once, then one HTTP Range request per clip (details below). Cuts take about 1 s on Internet Archive files and about 0.15 s on warm podcast files, at any position in the episode.
 
@@ -38,7 +39,7 @@ Last updated: 2026-11-01.
 
 ### 1. Follow-ups to the sampler features
 
-- **Collections of timelines (the owner's next idea):** several named timelines/stories that are saved and reopened, so new stories can be started and old ones kept. Needs the server-side store below. Decide with the owner how a story relates to a timeline (one-to-one is the simplest).
+- **Renewing the story (the owner asked for this, "later"):** a timeline should not be limited to one story. When it holds a lot of content, the owner wants to start a new story from the same timeline: a selection and order of its clips, saved and replayable, with the timeline itself unchanged. The data model is ready for it: clips belong to a timeline, and a story is currently just all library clips of the timeline in date order (`useStory`, `/api/bounce`). Likely shape: a `stories` table (timeline id, name, ordered clip keys, gap) and a story picker in the story panel. Reordering and muting clips (below) belong with it.
 - **Trim inside the pinned-clip popover.** Trimming works in result cards only; the popover waveform is read-only. Editing a pinned clip would update the saved clip's range (its key includes the range, so keep the original key to avoid re-triggering the arrival animation).
 - **Clips from the same day sit on top of each other** on the timeline (same x). Spread them a little or stack them.
 - **Fade curves and defaults:** fades are linear (like Ableton's default). Curve shapes (equal-power, exponential) and a tiny automatic fade on every cut, to avoid clicks when a cut lands mid-waveform, are not done.
@@ -57,7 +58,6 @@ Last updated: 2026-11-01.
 
 ### 3. Infrastructure and housekeeping
 
-- **Server-side store for saved clips** (a SQLite table) with a one-time import from localStorage. Needed before the Tauri/Electron app.
 - **GDELT reliability:** the API often fails with "fetch failed" or takes 10 to 20 s. Add one retry and a clearer message.
 - **Clip cache growth:** `data/clips/` has no eviction.
 - Tauri or Electron wrapper.

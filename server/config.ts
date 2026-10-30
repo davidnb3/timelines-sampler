@@ -5,7 +5,8 @@ export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 export const DATA_DIR = path.join(ROOT, 'data');
 export const MODEL_PATH =
   process.env.BACK_THEN_WHISPER_MODEL ?? path.join(DATA_DIR, 'models', 'ggml-large-v3-turbo-q5_0.bin');
-export const DB_PATH = path.join(DATA_DIR, 'back-then.sqlite');
+/** `BACK_THEN_DB` points the server at another database file, e.g. a copy to test against. */
+export const DB_PATH = process.env.BACK_THEN_DB ?? path.join(DATA_DIR, 'back-then.sqlite');
 export const CLIP_DIR = path.join(DATA_DIR, 'clips');
 export const WEB_DIST = path.join(ROOT, 'web-dist');
 export const PORT = Number(process.env.BACK_THEN_PORT ?? 4747);

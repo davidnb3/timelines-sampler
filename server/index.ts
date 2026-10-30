@@ -8,6 +8,10 @@ import { MAX_FADE_MS } from './fade.ts';
 import { getSegmentsBetween, libraryStats, listTopics, openDb } from './db.ts';
 import { expandWindow, searchLibrary } from './sources/library.ts';
 import { searchTv } from './sources/gdelt.ts';
+import {
+  addClip, createTimeline, deleteTimeline, duplicateTimeline, getTimeline, listTimelines, removeClip, renameTimeline,
+  TimelineError,
+} from './timelines.ts';
 import { modelAvailable } from './whisper.ts';
 
 const conn = openDb();
@@ -51,6 +55,61 @@ function sendFile(req: http.IncomingMessage, res: http.ServerResponse, file: str
   fs.createReadStream(file).pipe(res);
 }
 
+const MAX_BODY_BYTES = 1_000_000;
+
+/**
+ * Reads a JSON request body. Only `application/json` is accepted: a web page on another site
+ * cannot send that to this server without a CORS preflight, which the server never answers, so
+ * other sites cannot change your timelines.
+ */
+async function readJson(req: http.IncomingMessage): Promise<unknown> {
+  if (!/^application\/json\b/i.test(req.headers['content-type'] ?? '')) throw new TimelineError(415, 'Send application/json');
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > MAX_BODY_BYTES) throw new TimelineError(413, 'Request body is too large');
+    chunks.push(chunk as Buffer);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8') || 'null');
+  } catch {
+    throw new TimelineError(400, 'Body is not valid JSON');
+  }
+}
+
+/** /api/timelines, /api/timelines/:id, /api/timelines/:id/duplicate and /api/timelines/:id/clips. */
+async function handleTimelines(req: http.IncomingMessage, res: http.ServerResponse, url: URL, idText: string | undefined, sub: string | undefined): Promise<void> {
+  const method = req.method ?? 'GET';
+  const id = idText === undefined ? null : Number(idText);
+  const body = async () => (await readJson(req)) as Record<string, unknown> | null;
+  const notAllowed = () => new TimelineError(405, `${method} is not supported here`);
+
+  if (id === null) {
+    if (method === 'GET') return sendJson(res, 200, listTimelines(conn));
+    if (method === 'POST') {
+      const b = await body();
+      return sendJson(res, 201, createTimeline(conn, b?.name, Array.isArray(b?.clips) ? b.clips : []));
+    }
+    throw notAllowed();
+  }
+  if (sub === undefined) {
+    if (method === 'GET') return sendJson(res, 200, getTimeline(conn, id));
+    if (method === 'PATCH') return sendJson(res, 200, renameTimeline(conn, id, (await body())?.name));
+    if (method === 'DELETE') {
+      deleteTimeline(conn, id);
+      return sendJson(res, 200, { ok: true });
+    }
+    throw notAllowed();
+  }
+  if (sub === 'duplicate' && method === 'POST') return sendJson(res, 201, duplicateTimeline(conn, id));
+  if (sub === 'clips') {
+    if (method === 'POST') return sendJson(res, 201, addClip(conn, id, await body()));
+    if (method === 'DELETE') return sendJson(res, 200, removeClip(conn, id, url.searchParams.get('key') ?? ''));
+  }
+  throw notAllowed();
+}
+
 const intParam = (v: string | null, d: number, min: number, max: number) => {
   const n = v === null ? d : Number.parseInt(v, 10);
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : d;
@@ -58,6 +117,9 @@ const intParam = (v: string | null, d: number, min: number, max: number) => {
 
 async function handleApi(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
   const p = url.searchParams;
+
+  const timelines = /^\/api\/timelines(?:\/(\d+))?(?:\/(duplicate|clips))?$/.exec(url.pathname);
+  if (timelines) return handleTimelines(req, res, url, timelines[1], timelines[2]);
 
   if (url.pathname === '/api/health') {
     return sendJson(res, 200, { ok: true, library: libraryStats(conn), whisperModel: modelAvailable() });
@@ -149,7 +211,7 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname.startsWith('/api/')) await handleApi(req, res, url);
     else serveWeb(req, res, url);
   } catch (err) {
-    const status = err instanceof ClipError ? err.status : 500;
+    const status = err instanceof ClipError || err instanceof TimelineError ? err.status : 500;
     const message = err instanceof Error ? err.message : String(err);
     if (status === 500) console.error(`${req.method} ${req.url}:`, message);
     if (!res.headersSent) sendJson(res, status, { error: message });

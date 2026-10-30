@@ -10,7 +10,8 @@ import { ResultCard } from './ResultCard.tsx';
 import { useTheme } from './theme.ts';
 import { pinKey, pinTime } from './timeline/model.ts';
 import { Timeline, type TimelineHandle, type TimelineItem } from './timeline/Timeline.tsx';
-import { useSavedClips } from './timeline/useSavedClips.ts';
+import { TimelineSwitcher } from './timeline/TimelineSwitcher.tsx';
+import { useTimelines } from './timeline/useTimelines.ts';
 import { StoryPanel } from './story/StoryPanel.tsx';
 import { useStory } from './story/useStory.ts';
 import { selectText, type Fade, type Region } from './trim.ts';
@@ -110,7 +111,7 @@ export function App() {
   const player = usePlayer();
   const playerRef = useRef(player);
   playerRef.current = player;
-  const saved = useSavedClips();
+  const saved = useTimelines();
 
   const [input, setInput] = useState(() => new URLSearchParams(location.search).get('q') ?? '');
   const [submitted, setSubmitted] = useState('');
@@ -466,7 +467,10 @@ export function App() {
     }
   };
 
-  const statusText = anyLoading
+  const activeName = saved.timelines.find((t) => t.id === saved.activeId)?.name;
+  const statusText = saved.error
+    ? `Could not save: ${saved.error}`
+    : anyLoading
     ? 'Listening'
     : allDone
       ? `${hits.length} clip${hits.length === 1 ? '' : 's'}`
@@ -494,7 +498,7 @@ export function App() {
       <header className="bar">
         <span className="brand"><Logo playing={player.playing || story.playing} /><span className="brand-name">Back then</span></span>
         <span className="bar-right">
-          <span className={`status${anyLoading ? ' is-busy' : ''}`} role="status" aria-live="polite">
+          <span className={`status${anyLoading ? ' is-busy' : ''}${saved.error ? ' is-error' : ''}`} role="status" aria-live="polite">
             <i aria-hidden />{statusText}
           </span>
           <button type="button" className="bar-btn" onClick={() => setHelpOpen((v) => !v)} aria-label="Keyboard shortcuts" aria-expanded={helpOpen} title="Shortcuts (?)">?</button>
@@ -633,7 +637,19 @@ export function App() {
         nowKey={story.nowKey}
         storyOpen={story.open}
         onStory={story.open ? story.close : story.openStory}
-        footer={storyShown ? <StoryPanel story={story} theme={theme} leaving={!story.open} /> : null}
+        footer={storyShown ? <StoryPanel story={story} theme={theme} leaving={!story.open} title={activeName} /> : null}
+        viewKey={saved.loaded && saved.activeId !== null ? String(saved.activeId) : null}
+        titleSlot={
+          <TimelineSwitcher
+            timelines={saved.timelines}
+            activeId={saved.activeId}
+            onSwitch={saved.switchTo}
+            onCreate={() => saved.createTimeline()}
+            onRename={saved.renameTimeline}
+            onDuplicate={(id) => void saved.duplicateTimeline(id)}
+            onDelete={(id) => void saved.deleteTimeline(id)}
+          />
+        }
         openKey={openPin}
         onOpen={setOpenPin}
         renderPopover={(item) => (

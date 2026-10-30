@@ -79,3 +79,15 @@ export const Grip = ({ size = 14, ...p }: P & { size?: number }) => (
 export const Loop = ({ size = 14, ...p }: P & { size?: number }) => (
   <svg {...base(size)} {...p}><path d="M17 3l3 3-3 3M4 11V9a3 3 0 0 1 3-3h13M7 21l-3-3 3-3M20 13v2a3 3 0 0 1-3 3H4" /></svg>
 );
+
+export const Pencil = ({ size = 14, ...p }: P & { size?: number }) => (
+  <svg {...base(size)} {...p}><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17v3ZM14.5 7.5l3 3" /></svg>
+);
+
+export const Copy = ({ size = 14, ...p }: P & { size?: number }) => (
+  <svg {...base(size)} {...p}><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h9" /></svg>
+);
+
+export const Trash = ({ size = 14, ...p }: P & { size?: number }) => (
+  <svg {...base(size)} {...p}><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" /></svg>
+);

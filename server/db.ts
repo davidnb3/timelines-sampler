@@ -49,6 +49,19 @@ CREATE TABLE IF NOT EXISTS segments (
   text TEXT NOT NULL,
   UNIQUE (episode_id, idx)
 );
+CREATE TABLE IF NOT EXISTS timelines (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS timeline_clips (
+  timeline_id INTEGER NOT NULL REFERENCES timelines(id) ON DELETE CASCADE,
+  key TEXT NOT NULL,
+  hit TEXT NOT NULL,
+  saved_at INTEGER NOT NULL,
+  PRIMARY KEY (timeline_id, key)
+);
 CREATE VIRTUAL TABLE IF NOT EXISTS segments_fts USING fts5(
   text, content='segments', content_rowid='id', tokenize='porter unicode61'
 );

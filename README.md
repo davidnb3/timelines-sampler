@@ -33,7 +33,8 @@ npm run dev     # http://localhost:5273
 
 The UI is a dark room with a timeline in it. Starring a clip (or saving it as WAV/MP3) flies it onto the
 timeline at its recording date; drag the timeline to pan, scroll or pinch to zoom, click a pinned clip to
-open it. Saved clips live in this browser's localStorage, not on the server.
+open it. Timelines are saved on the server (several, each one a story): switch, rename, duplicate or
+delete them from the name in the timeline's corner.
 
 Keyboard: `/` search, `j`/`k` move, `space` play, `s` add to timeline, `e` more context, `d` save WAV,
 `[` `]` step through pinned clips, `f` fit the timeline, `t` enlarge it, `l` lights on/off, `?` help, `esc` close/stop.

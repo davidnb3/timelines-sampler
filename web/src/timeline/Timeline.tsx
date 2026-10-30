@@ -54,11 +54,18 @@ interface Props {
   onStory?: () => void;
   /** Shown below the line (the story panel). */
   footer?: ReactNode;
+  /** Replaces the plain "Timeline" title (the timeline switcher). */
+  titleSlot?: ReactNode;
+  /**
+   * Identifies which saved timeline's clips are showing, or null while they load. The first value
+   * plays the opening shot; each later one flies the camera to the new clips.
+   */
+  viewKey?: string | null;
 }
 
 const reduced = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-export function Timeline({ ref, items, theme, tall, onToggleTall, openKey, onOpen, renderPopover, lineRatio = 0.64, nowKey = null, storyOpen = false, onStory, footer }: Props) {
+export function Timeline({ ref, items, theme, tall, onToggleTall, openKey, onOpen, renderPopover, lineRatio = 0.64, nowKey = null, storyOpen = false, onStory, footer, titleSlot, viewKey = null }: Props) {
   const host = useRef<HTMLElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const engine = useRef<Engine | null>(null);
@@ -77,12 +84,26 @@ export function Timeline({ ref, items, theme, tall, onToggleTall, openKey, onOpe
       reducedMotion: reduced,
     });
     engine.current = eng;
-    eng.intro(fitView(itemsRef.current.map((i) => i.t), eng.width() || window.innerWidth));
     return () => {
       eng.dispose();
       engine.current = null;
     };
   }, []);
+
+  // The clips arrive from the server after the page opens. The opening shot waits for them; switching
+  // to another timeline later flies to its clips instead.
+  const introduced = useRef(false);
+  useEffect(() => {
+    const eng = engine.current;
+    if (!eng || viewKey === null) return;
+    const list = itemsRef.current.map((i) => i.t);
+    if (!introduced.current) {
+      introduced.current = true;
+      eng.intro(fitView(list, eng.width() || window.innerWidth));
+    } else {
+      void eng.fit(list);
+    }
+  }, [viewKey]);
 
   // New, removed or re-tiered nodes need a frame to get their position before they paint.
   useLayoutEffect(() => engine.current?.invalidate(), [items]);
@@ -186,7 +207,7 @@ export function Timeline({ ref, items, theme, tall, onToggleTall, openKey, onOpe
 
       <div className="tl-ui">
         <span className="tl-left">
-          <span className="tl-title">Timeline{count > 0 && <em>{count} clip{count === 1 ? '' : 's'}</em>}</span>
+          {titleSlot ?? <span className="tl-title">Timeline{count > 0 && <em>{count} clip{count === 1 ? '' : 's'}</em>}</span>}
           {onStory && (
             <button type="button" className={`tl-story${storyOpen ? ' is-on' : ''}`} onClick={onStory} data-no-pan aria-pressed={storyOpen} title="Play the pinned clips one after another (p)">
               <Play size={11} />{storyOpen ? 'Story' : 'Play story'}

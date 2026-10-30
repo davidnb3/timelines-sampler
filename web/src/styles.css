@@ -225,6 +225,14 @@ kbd {
   transition: background 0.3s;
 }
 
+.status.is-error {
+  color: rgb(var(--accent));
+}
+
+.status.is-error i {
+  background: rgb(var(--accent));
+}
+
 .status.is-busy {
   color: rgb(var(--accent));
 }

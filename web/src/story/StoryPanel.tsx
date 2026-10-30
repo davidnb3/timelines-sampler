@@ -199,7 +199,7 @@ function StoryTime({ story }: { story: Story }) {
   );
 }
 
-export function StoryPanel({ story, theme, leaving = false }: { story: Story; theme: Theme; leaving?: boolean }) {
+export function StoryPanel({ story, theme, leaving = false, title }: { story: Story; theme: Theme; leaving?: boolean; title?: string }) {
   const ready = story.status === 'ready' && story.total > 0;
   const status =
     story.status === 'error' ? `Could not build the story: ${story.error}`
@@ -207,8 +207,8 @@ export function StoryPanel({ story, theme, leaving = false }: { story: Story; th
     : story.total === 0 ? 'Pin clips from the library to build a story.'
     : story.nowIndex >= 0 ? `Clip ${story.clips[story.nowIndex]?.no} of ${story.total}`
     : `${story.total} clip${story.total === 1 ? '' : 's'}, in date order`;
-  // Files are named after the first and last dates so several stories do not overwrite each other.
-  const name = 'Back then story';
+  // Downloads are named after the timeline, so stories from different timelines do not overwrite each other.
+  const name = title ? `Back then - ${title}` : 'Back then story';
 
   return (
     <div className={`story${leaving ? ' is-leaving' : ''}`} role="region" aria-label="Story" aria-hidden={leaving}>
