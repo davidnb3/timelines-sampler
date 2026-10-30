@@ -31,6 +31,11 @@ npm run ingest -- podcast --term "science fiction" --episodes 2 --topic sci-fi
 npm run dev     # http://localhost:5273
 ```
 
-Keyboard: `/` search, `j`/`k` or arrows move, `space` play, `e` more context, `d` save WAV, `esc` stop, `t` theme.
+The UI is a dark room with a timeline in it. Starring a clip (or saving it as WAV/MP3) flies it onto the
+timeline at its recording date; drag the timeline to pan, scroll or pinch to zoom, click a pinned clip to
+open it. Saved clips live in this browser's localStorage, not on the server.
+
+Keyboard: `/` search, `j`/`k` move, `space` play, `s` add to timeline, `e` more context, `d` save WAV,
+`[` `]` step through pinned clips, `f` fit the timeline, `t` enlarge it, `l` lights on/off, `?` help, `esc` close/stop.
 
 See `CLAUDE.md` for architecture and known limits.

@@ -9,14 +9,15 @@ interface Props {
   progress: number;
   loading: boolean;
   theme: Theme;
+  /** Canvas height in CSS pixels. */
+  height?: number;
   onSeek?: (fraction: number) => void;
 }
 
 const BAR = 3;
 const GAP = 2;
-const HEIGHT = 120;
 
-export function Waveform({ peaks, progress, loading, theme, onSeek }: Props) {
+export function Waveform({ peaks, progress, loading, theme, height: HEIGHT = 120, onSeek }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -67,7 +68,7 @@ export function Waveform({ peaks, progress, loading, theme, onSeek }: Props) {
     const ro = new ResizeObserver(draw);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [peaks, progress, theme]);
+  }, [peaks, progress, theme, HEIGHT]);
 
   return (
     <canvas

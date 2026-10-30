@@ -1,12 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useLayoutEffect, useState } from 'react';
 
 export type Theme = 'light' | 'dark';
 
 const KEY = 'telly.theme';
-
-function systemTheme(): Theme {
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-}
 
 function stored(): Theme | null {
   try {
@@ -17,22 +13,15 @@ function stored(): Theme | null {
   }
 }
 
-/** Light/dark theme that follows the OS until the user picks one, then remembers the choice. */
+/** The room is dark by default; "lights on" (light theme) is remembered once chosen. */
 export function useTheme(): { theme: Theme; toggle: () => void } {
-  const [theme, setTheme] = useState<Theme>(() => stored() ?? systemTheme());
+  const [theme, setTheme] = useState<Theme>(() => stored() ?? 'dark');
 
-  useEffect(() => {
+  // A layout effect, so the attribute is set before children's effects read the theme's CSS variables
+  // (the timeline canvas does, to pick its colours).
+  useLayoutEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
-
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const onChange = () => {
-      if (!stored()) setTheme(systemTheme());
-    };
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  }, []);
 
   const toggle = useCallback(() => {
     setTheme((t) => {

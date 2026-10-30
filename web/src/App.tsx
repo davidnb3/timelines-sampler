@@ -1,12 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import {
   clipUrl, expandHit, fetchHealth, fetchTopics, search,
   type Health, type Hit, type SourceId, type TopicCount,
 } from './api.ts';
+import { flyDot } from './fly.ts';
+import { Moon, Sun } from './icons.tsx';
+import { PinCard } from './PinCard.tsx';
 import { ResultCard } from './ResultCard.tsx';
 import { useTheme } from './theme.ts';
+import { pinKey, pinTime } from './timeline/model.ts';
+import { Timeline, type TimelineHandle, type TimelineItem } from './timeline/Timeline.tsx';
+import { useSavedClips } from './timeline/useSavedClips.ts';
 import { usePlayer } from './usePlayer.ts';
-import { Waveform } from './Waveform.tsx';
 
 interface SourceResult {
   status: 'idle' | 'loading' | 'done' | 'error';
@@ -21,8 +26,25 @@ const EMPTY: Record<SourceId, SourceResult> = {
   tv: { status: 'idle', hits: [], terms: [] },
 };
 
-const SOURCE_LABEL: Record<SourceId, string> = { library: 'library', tv: 'tv captions' };
+const SOURCE_LABEL: Record<SourceId, string> = { library: 'Library', tv: 'TV captions' };
 const EXAMPLES = ['the planets are dying', 'contact has been lost', 'flying saucer', 'we are not alone'];
+
+const SHORTCUTS: [string, string][] = [
+  ['/', 'Search'],
+  ['j  k', 'Next / previous result'],
+  ['space', 'Play or pause'],
+  ['s', 'Add to timeline'],
+  ['e', 'More context'],
+  ['d', 'Save WAV'],
+  ['[  ]', 'Previous / next pinned clip'],
+  ['f', 'Fit the timeline'],
+  ['t', 'Enlarge timeline'],
+  ['l', 'Lights on / off'],
+  ['esc', 'Close, stop'],
+];
+
+const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const FLIGHT_MS = 950;
 
 function load<T>(key: string, fallback: T): T {
   try {
@@ -41,14 +63,37 @@ function save(key: string, value: unknown): void {
   }
 }
 
+/** Example searches that fade through the empty prompt, so the room hints at what to ask. */
+function PromptHint({ visible }: { visible: boolean }) {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setI((n) => (n + 1) % EXAMPLES.length), 3600);
+    return () => window.clearInterval(id);
+  }, []);
+  if (!visible) return null;
+  return <span key={i} className="prompt-hint" aria-hidden>{EXAMPLES[i]}</span>;
+}
+
+function Logo({ playing }: { playing: boolean }) {
+  return (
+    <svg className={`logo${playing ? ' is-playing' : ''}`} width="20" height="18" viewBox="0 0 20 18" aria-hidden>
+      {[2, 6.5, 11, 15.5].map((x, i) => (
+        <rect key={x} className="logo-bar" style={{ '--d': `${i * 110}ms` } as CSSProperties} x={x} y="2" width="2.4" height="14" rx="1.2" />
+      ))}
+    </svg>
+  );
+}
+
 export function App() {
   const { theme, toggle: toggleTheme } = useTheme();
   const player = usePlayer();
   const playerRef = useRef(player);
   playerRef.current = player;
+  const saved = useSavedClips();
 
   const [input, setInput] = useState(() => new URLSearchParams(location.search).get('q') ?? '');
   const [submitted, setSubmitted] = useState('');
+  const [runId, setRunId] = useState(0);
   const [results, setResults] = useState(EMPTY);
   const [sources, setSources] = useState<Record<SourceId, boolean>>(() => load('telly.sources', { library: true, tv: true }));
   const [topics, setTopics] = useState<string[]>(() => load('telly.topics', []));
@@ -57,8 +102,15 @@ export function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [expanding, setExpanding] = useState<string | null>(null);
   const [embedId, setEmbedId] = useState<string | null>(null);
+  const [tall, setTall] = useState(false);
+  const [openPin, setOpenPin] = useState<string | null>(null);
+  const [flying, setFlying] = useState<Set<string>>(new Set());
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [focused, setFocused] = useState(false);
 
+  const roomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const timelineRef = useRef<TimelineHandle>(null);
   const abortRef = useRef<AbortController | null>(null);
   const submittedRef = useRef('');
   const history = useRef<string[]>(load('telly.history', []));
@@ -67,6 +119,30 @@ export function App() {
   useEffect(() => {
     fetchTopics().then(setAvailableTopics, () => undefined);
     fetchHealth().then(setHealth, () => undefined);
+  }, []);
+
+  // A soft light follows the pointer around the room.
+  useEffect(() => {
+    const room = roomRef.current;
+    if (!room) return;
+    let raf = 0;
+    let x = 0;
+    let y = 0;
+    const onMove = (e: PointerEvent) => {
+      x = e.clientX;
+      y = e.clientY;
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        room.style.setProperty('--mx', `${x}px`);
+        room.style.setProperty('--my', `${y}px`);
+      });
+    };
+    window.addEventListener('pointermove', onMove, { passive: true });
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, []);
 
   const run = useCallback(
@@ -78,6 +154,7 @@ export function App() {
       abortRef.current = ctl;
       submittedRef.current = q;
       setSubmitted(q);
+      setRunId((n) => n + 1);
       setSelectedId(null);
       setEmbedId(null);
       historyPos.current = -1;
@@ -122,11 +199,16 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterKey]);
 
-  const hits = useMemo(() => [...results.library.hits, ...results.tv.hits], [results]);
+  // GDELT can return the same caption window twice; show it once.
+  const hits = useMemo(
+    () => [...new Map([...results.library.hits, ...results.tv.hits].map((h) => [h.id, h])).values()],
+    [results],
+  );
   const terms = useMemo(() => [...new Set([...results.library.terms, ...results.tv.terms])], [results]);
   const effectiveSelected = selectedId && hits.some((h) => h.id === selectedId) ? selectedId : (hits[0]?.id ?? null);
   const anyLoading = Object.values(results).some((r) => r.status === 'loading');
   const allDone = submitted !== '' && !anyLoading;
+  const phase = submitted === '' ? 'idle' : 'active';
 
   /** Library clips play in the shared audio player; TV clips open the Internet Archive player. */
   const play = useCallback((hit: Hit) => {
@@ -152,6 +234,65 @@ export function App() {
       setExpanding(null);
     }
   }, []);
+
+  // The timeline, in date order. Neighbours get different stem heights so labels do not collide.
+  const items = useMemo<TimelineItem[]>(
+    () =>
+      saved.clips
+        .map((c) => ({ c, t: pinTime(c.hit, c.savedAt) }))
+        .sort((a, b) => a.t - b.t)
+        .map(({ c, t }, i) => ({
+          key: c.key,
+          t,
+          no: String(i + 1).padStart(2, '0'),
+          tier: i % 3,
+          hit: c.hit,
+          entering: saved.entering.has(c.key),
+          leaving: saved.leaving.has(c.key),
+        })),
+    [saved.clips, saved.entering, saved.leaving],
+  );
+
+  const isPinned = useCallback((hit: Hit) => {
+    const key = pinKey(hit);
+    return (saved.has(key) && !saved.leaving.has(key)) || flying.has(key);
+  }, [saved, flying]);
+
+  /** Adds a clip to the timeline: the camera moves to its date while a dot flies in from `from`. */
+  const pin = useCallback(
+    async (hit: Hit, from: HTMLElement | null) => {
+      const key = pinKey(hit);
+      if (saved.has(key) || flying.has(key)) return;
+      const timeline = timelineRef.current;
+      if (!timeline || !from || reducedMotion()) {
+        saved.add(hit);
+        timeline?.pulse();
+        return;
+      }
+      setFlying((s) => new Set(s).add(key));
+      const t = pinTime(hit, Date.now());
+      const view = timeline.plan(t, items.map((i) => i.t));
+      const target = timeline.screenPoint(t, view);
+      await Promise.all([flyDot(from.getBoundingClientRect(), target, FLIGHT_MS), timeline.flyToView(view, FLIGHT_MS)]);
+      saved.add(hit);
+      timeline.pulse();
+      setFlying((s) => {
+        const next = new Set(s);
+        next.delete(key);
+        return next;
+      });
+    },
+    [saved, flying, items],
+  );
+
+  const unpin = useCallback(
+    (hit: Hit) => {
+      const key = pinKey(hit);
+      saved.remove(key);
+      setOpenPin((cur) => (cur === key ? null : cur));
+    },
+    [saved],
+  );
 
   const toggleTopic = (topic: string) => {
     setTopics((cur) => {
@@ -184,23 +325,47 @@ export function App() {
         const id = ids[Math.min(ids.length - 1, Math.max(0, to))];
         if (!id) return;
         setSelectedId(id);
-        document.querySelector(`[data-result-id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' });
+        document.querySelector(`[data-result-id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       };
       const current = hits[at];
+      const pinButton = (hit: Hit) => document.querySelector<HTMLElement>(`[data-result-id="${CSS.escape(hit.id)}"] [data-pin]`);
       switch (e.key) {
         case '/': e.preventDefault(); inputRef.current?.focus(); inputRef.current?.select(); break;
         case 'j': case 'ArrowDown': e.preventDefault(); move(at + 1); break;
         case 'k': case 'ArrowUp': e.preventDefault(); move(at - 1); break;
         case ' ': case 'Enter': if (current) { e.preventDefault(); play(current); } break;
+        case 's':
+          if (current) {
+            if (isPinned(current)) unpin(current);
+            else void pin(current, pinButton(current));
+          }
+          break;
         case 'e': if (current) void expand(current); break;
-        case 'd': if (current && current.source === 'library') window.location.assign(clipUrl(current, 'wav', true)); break;
-        case 't': toggleTheme(); break;
-        case 'Escape': playerRef.current.stop(); setEmbedId(null); break;
+        case 'd':
+          if (current && current.source === 'library') {
+            window.location.assign(clipUrl(current, 'wav', true));
+            void pin(current, pinButton(current));
+          }
+          break;
+        case '[': timelineRef.current?.step(-1); break;
+        case ']': timelineRef.current?.step(1); break;
+        case 'f': timelineRef.current?.fit(); break;
+        case 't': setTall((v) => !v); break;
+        case 'l': toggleTheme(); break;
+        case '?': setHelpOpen((v) => !v); break;
+        case 'Escape':
+          if (helpOpen) setHelpOpen(false);
+          else if (openPin) setOpenPin(null);
+          else {
+            playerRef.current.stop();
+            setEmbedId(null);
+          }
+          break;
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [hits, effectiveSelected, expand, play, toggleTheme]);
+  }, [hits, effectiveSelected, expand, play, pin, unpin, isPinned, toggleTheme, helpOpen, openPin]);
 
   const onInputKey = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
@@ -217,148 +382,183 @@ export function App() {
   };
 
   const statusText = anyLoading
-    ? 'searching…'
+    ? 'Listening'
     : allDone
       ? `${hits.length} clip${hits.length === 1 ? '' : 's'}`
-      : 'ready';
-  const nextTheme = theme === 'dark' ? 'light' : 'dark';
+      : health
+        ? `${health.library.episodes} recordings indexed`
+        : '';
+
+  const grounded = (Object.keys(SOURCE_LABEL) as SourceId[])
+    .filter((s) => sources[s] && results[s].status !== 'idle')
+    .map((s) => {
+      const r = results[s];
+      const detail =
+        r.status === 'loading' ? 'searching'
+        : r.status === 'error' ? `error: ${r.error}`
+        : `${r.hits.length} hit${r.hits.length === 1 ? '' : 's'} · ${r.ms} ms`;
+      return `${SOURCE_LABEL[s]} ${detail}`;
+    })
+    .join('   ·   ');
 
   return (
-    <main className="shell">
-      <section className="term" aria-label="telly search">
-        <header className="term-head">
-          <span className="term-title">telly · search</span>
-          <span className="term-right">
-            <span className={`term-status${anyLoading ? ' is-busy' : ''}`} role="status" aria-live="polite">{statusText}</span>
-            <button type="button" className="btn btn-ghost" onClick={toggleTheme} aria-label={`Switch to ${nextTheme} theme`} title="Toggle theme (t)">
-              {theme === 'dark' ? '☀ light' : '☾ dark'}
-            </button>
-          </span>
-        </header>
+    <div ref={roomRef} className="room" data-phase={phase} data-dock={tall ? 'tall' : 'low'}>
+      <div className="room-bg" aria-hidden />
+      <div className="room-grain" aria-hidden />
 
-        <div className="term-body">
-          <label className="prompt">
-            <span className="prompt-label">ask ›</span>
+      <header className="bar">
+        <span className="brand"><Logo playing={player.playing} />telly</span>
+        <span className="bar-right">
+          <span className={`status${anyLoading ? ' is-busy' : ''}`} role="status" aria-live="polite">
+            <i aria-hidden />{statusText}
+          </span>
+          <button type="button" className="bar-btn" onClick={() => setHelpOpen((v) => !v)} aria-label="Keyboard shortcuts" aria-expanded={helpOpen} title="Shortcuts (?)">?</button>
+          <button
+            type="button"
+            className="bar-btn"
+            onClick={toggleTheme}
+            aria-label={theme === 'dark' ? 'Switch the lights on' : 'Switch the lights off'}
+            title={theme === 'dark' ? 'Lights on (l)' : 'Lights off (l)'}
+          >
+            {theme === 'dark' ? <Sun /> : <Moon />}
+          </button>
+        </span>
+        {helpOpen && (
+          <div className="help" role="dialog" aria-label="Keyboard shortcuts">
+            {SHORTCUTS.map(([keys, what]) => (
+              <p key={keys}><span>{keys.split('  ').map((k) => <kbd key={k}>{k}</kbd>)}</span>{what}</p>
+            ))}
+          </div>
+        )}
+      </header>
+
+      <section className="ask" aria-label="Search">
+        <p className="ask-eyebrow">What was said?</p>
+        <label className="prompt">
+          <span className="prompt-glyph">ask ›</span>
+          <span className="prompt-field">
             <input
               ref={inputRef}
               className="prompt-input"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onInputKey}
-              placeholder="type words or a sentence, press Enter"
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
               autoFocus
               spellCheck={false}
               autoComplete="off"
               aria-label="Search spoken audio"
             />
-          </label>
+            <PromptHint visible={input === '' && !focused} />
+          </span>
+          <span className="scan" data-busy={anyLoading} aria-hidden />
+        </label>
 
-          <div className="filters">
-            <div className="chip-row" role="group" aria-label="Topic filter">
-              <span className="chip-label">topics</span>
-              {availableTopics.length === 0 && <span className="muted">none yet, run an ingest</span>}
-              {availableTopics.map((t) => (
-                <button
-                  key={t.topic}
-                  type="button"
-                  className={`chip${topics.includes(t.topic) ? ' is-on' : ''}`}
-                  aria-pressed={topics.includes(t.topic)}
-                  onClick={() => toggleTopic(t.topic)}
-                >
-                  {t.topic} <span className="chip-count">{t.episodes}</span>
-                </button>
-              ))}
-            </div>
-            <div className="chip-row" role="group" aria-label="Sources">
-              <span className="chip-label">sources</span>
-              {(Object.keys(SOURCE_LABEL) as SourceId[]).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  className={`chip${sources[s] ? ' is-on' : ''}`}
-                  aria-pressed={sources[s]}
-                  onClick={() => toggleSource(s)}
-                  title={s === 'tv' ? 'Live search of US TV closed captions (GDELT). Topic filters do not apply.' : 'Your local index of transcribed recordings'}
-                >
-                  {SOURCE_LABEL[s]}
-                </button>
-              ))}
-            </div>
+        <div className="filters">
+          <div className="chip-group" role="group" aria-label="Topic filter">
+            <span className="chip-label">Topics</span>
+            {availableTopics.length === 0 && <span className="chip-none">none yet, run an ingest</span>}
+            {availableTopics.map((t) => (
+              <button
+                key={t.topic}
+                type="button"
+                className={`chip${topics.includes(t.topic) ? ' is-on' : ''}`}
+                aria-pressed={topics.includes(t.topic)}
+                onClick={() => toggleTopic(t.topic)}
+              >
+                {t.topic} <span className="chip-count">{t.episodes}</span>
+              </button>
+            ))}
           </div>
-
-          <Waveform
-            peaks={player.peaks}
-            progress={player.progress}
-            loading={player.loading}
-            theme={theme}
-            onSeek={player.seek}
-          />
-
-          <p className="grounded">
-            Grounded in:{' '}
-            {(Object.keys(SOURCE_LABEL) as SourceId[])
-              .filter((s) => sources[s])
-              .map((s) => {
-                const r = results[s];
-                const detail =
-                  r.status === 'loading' ? 'searching…'
-                  : r.status === 'error' ? `error: ${r.error}`
-                  : r.status === 'done' ? `${r.hits.length} hit${r.hits.length === 1 ? '' : 's'}, ${r.ms} ms`
-                  : s === 'library' && health ? `${health.library.episodes} recordings`
-                  : 'ready';
-                return `${SOURCE_LABEL[s]} (${detail})`;
-              })
-              .join(' + ')}
-          </p>
-
-          {allDone && hits.length === 0 && (
-            <p className="empty">
-              No clips found for “{submitted}”.
-              {topics.length > 0 && sources.library ? ' Try clearing the topic filter, ' : ' Try '}
-              fewer or different words.
-              {health && health.library.episodes === 0 && ' The library is empty: run `npm run ingest` to add recordings.'}
-            </p>
-          )}
-
-          {submitted === '' && (
-            <div className="intro">
-              <p>Search what people said, across the recordings you have indexed and live TV captions.</p>
-              <p className="chip-row">
-                <span className="chip-label">try</span>
-                {EXAMPLES.map((ex) => (
-                  <button key={ex} type="button" className="chip" onClick={() => { setInput(ex); run(ex); }}>
-                    {ex}
-                  </button>
-                ))}
-              </p>
-            </div>
-          )}
-
-          <div className="results">
-            {hits.map((hit, i) => (
-              <ResultCard
-                key={hit.id}
-                hit={hit}
-                terms={terms}
-                index={i}
-                selected={hit.id === effectiveSelected}
-                player={player}
-                embedOpen={embedId === hit.id}
-                expanding={expanding === hit.id}
-                onSelect={() => setSelectedId(hit.id)}
-                onPlay={() => { setSelectedId(hit.id); play(hit); }}
-                onExpand={() => void expand(hit)}
-              />
+          <div className="chip-group" role="group" aria-label="Sources">
+            <span className="chip-label">Sources</span>
+            {(Object.keys(SOURCE_LABEL) as SourceId[]).map((s) => (
+              <button
+                key={s}
+                type="button"
+                className={`chip${sources[s] ? ' is-on' : ''}`}
+                aria-pressed={sources[s]}
+                onClick={() => toggleSource(s)}
+                title={s === 'tv' ? 'Live search of US TV closed captions (GDELT). Topic filters do not apply.' : 'Your local index of transcribed recordings'}
+              >
+                {SOURCE_LABEL[s]}
+              </button>
             ))}
           </div>
         </div>
 
-        <footer className="term-foot">
-          <kbd>/</kbd> search · <kbd>↑</kbd><kbd>↓</kbd> history in the box, results outside · <kbd>space</kbd> play · <kbd>e</kbd> more context ·{' '}
-          <kbd>d</kbd> save wav · <kbd>esc</kbd> stop · <kbd>t</kbd> theme
-        </footer>
+        <p className="tryline">
+          <span className="chip-label">Try</span>
+          {EXAMPLES.map((ex) => (
+            <button key={ex} type="button" className="chip chip-ghost" onClick={() => { setInput(ex); run(ex); }}>
+              {ex}
+            </button>
+          ))}
+        </p>
       </section>
+
+      <section className="results" aria-label="Results" aria-busy={anyLoading}>
+        {grounded && <p className="grounded">{grounded}</p>}
+
+        {anyLoading && hits.length === 0 && (
+          <div aria-hidden>
+            {[0, 1, 2].map((i) => <div key={i} className="card card-skel" style={{ '--i': i } as CSSProperties}><i /><i /><i /></div>)}
+          </div>
+        )}
+
+        {allDone && hits.length === 0 && (
+          <p className="empty">
+            No clips found for “{submitted}”.
+            {topics.length > 0 && sources.library ? ' Try clearing the topic filter, or ' : ' Try '}
+            fewer or different words.
+            {health && health.library.episodes === 0 && ' The library is empty: run `npm run ingest` to add recordings.'}
+          </p>
+        )}
+
+        {hits.map((hit, i) => (
+          <ResultCard
+            key={`${runId}:${hit.id}`}
+            hit={hit}
+            terms={terms}
+            index={i}
+            selected={hit.id === effectiveSelected}
+            player={player}
+            theme={theme}
+            embedOpen={embedId === hit.id}
+            expanding={expanding === hit.id}
+            pinned={isPinned(hit)}
+            onSelect={() => setSelectedId(hit.id)}
+            onPlay={() => { setSelectedId(hit.id); play(hit); }}
+            onExpand={() => void expand(hit)}
+            onPin={(from) => void pin(hit, from)}
+            onUnpin={() => unpin(hit)}
+          />
+        ))}
+      </section>
+
+      <Timeline
+        ref={timelineRef}
+        items={items}
+        theme={theme}
+        tall={tall}
+        onToggleTall={() => setTall((v) => !v)}
+        openKey={openPin}
+        onOpen={setOpenPin}
+        renderPopover={(item) => (
+          <PinCard
+            hit={item.hit}
+            no={item.no}
+            player={player}
+            theme={theme}
+            embedOpen={embedId === item.hit.id}
+            onPlay={() => play(item.hit)}
+            onRemove={() => unpin(item.hit)}
+            onClose={() => setOpenPin(null)}
+          />
+        )}
+      />
       <audio {...player.audioProps} hidden />
-    </main>
+    </div>
   );
 }
