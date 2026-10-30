@@ -1,10 +1,11 @@
 import { clipUrl, type Hit } from './api.ts';
 import { formatDate, formatTime } from './format.ts';
-import { Close, Download, External, Pause, Play, Star } from './icons.tsx';
+import { ClipEditor } from './ClipEditor.tsx';
+import { startClipDrag } from './dragClip.ts';
+import { Close, Download, External, Grip, Pause, Play, Star } from './icons.tsx';
 import { Quote } from './ResultCard.tsx';
 import type { Theme } from './theme.ts';
 import type { Player } from './usePlayer.ts';
-import { Waveform } from './Waveform.tsx';
 
 interface Props {
   hit: Hit;
@@ -43,7 +44,11 @@ export function PinCard({ hit, no, player, theme, embedOpen, onPlay, onRemove, o
         <Quote text={hit.text} terms={[]} small />
       )}
 
-      {!isTv && isActive && <Waveform peaks={player.peaks} progress={player.progress} loading={player.loading} theme={theme} height={44} onSeek={player.seek} />}
+      {!isTv && isActive && player.win && player.region && (
+        <div className="pin-wave">
+          <ClipEditor win={player.win} region={player.region} fades={player.fades} playing={player.playing} theme={theme} position={player.position} editable={false} height={76} onSeek={player.seek} />
+        </div>
+      )}
 
       <footer className="pin-foot">
         <button type="button" className={`act act-primary${isPlaying ? ' is-playing' : ''}`} onClick={onPlay}>
@@ -52,6 +57,7 @@ export function PinCard({ hit, no, player, theme, embedOpen, onPlay, onRemove, o
         </button>
         {!isTv && (
           <>
+            <span className="act act-drag" draggable role="button" tabIndex={0} onDragStart={(e) => startClipDrag(e, hit)} title="Drag this clip into your DAW or a Finder window (WAV)"><Grip size={13} />Drag</span>
             <a className="act" href={clipUrl(hit, 'wav', true)} download><Download size={13} />wav</a>
             <a className="act" href={clipUrl(hit, 'mp3', true)} download><Download size={13} />mp3</a>
           </>

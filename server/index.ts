@@ -1,9 +1,11 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { bounce, parseBounce } from './bounce.ts';
 import { ClipError, cutClip, warmSource, type ClipFormat } from './clip.ts';
 import { PORT, WEB_DIST } from './config.ts';
-import { libraryStats, listTopics, openDb } from './db.ts';
+import { MAX_FADE_MS } from './fade.ts';
+import { getSegmentsBetween, libraryStats, listTopics, openDb } from './db.ts';
 import { expandWindow, searchLibrary } from './sources/library.ts';
 import { searchTv } from './sources/gdelt.ts';
 import { modelAvailable } from './whisper.ts';
@@ -91,6 +93,23 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse, ur
     return win ? sendJson(res, 200, win) : sendJson(res, 404, { error: 'Segment not found' });
   }
 
+  if (url.pathname === '/api/segments') {
+    const episode = intParam(p.get('episode'), 0, 0, 1e9);
+    const from = intParam(p.get('from'), 0, 0, 1e10);
+    const to = intParam(p.get('to'), from, from, 1e10);
+    return sendJson(res, 200, getSegmentsBetween(conn, episode, from, to));
+  }
+
+  if (url.pathname === '/api/bounce') {
+    const spec = parseBounce(p.get('clips'), p.get('gap'), p.get('fmt'));
+    const file = await bounce(conn, spec);
+    const name = (p.get('name') ?? 'story').replace(/[^\w .-]+/g, '').slice(0, 80) || 'story';
+    const extra: Record<string, string> = p.get('download')
+      ? { 'Content-Disposition': `attachment; filename="${name}.${spec.format}"` }
+      : {};
+    return sendFile(req, res, file, extra);
+  }
+
   if (url.pathname === '/api/clip') {
     const format: ClipFormat = p.get('fmt') === 'wav' ? 'wav' : 'mp3';
     const file = await cutClip(
@@ -99,6 +118,7 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse, ur
       Number(p.get('start')),
       Number(p.get('end')),
       format,
+      { inMs: intParam(p.get('fi'), 0, 0, MAX_FADE_MS), outMs: intParam(p.get('fo'), 0, 0, MAX_FADE_MS) },
     );
     const name = (p.get('name') ?? 'clip').replace(/[^\w .-]+/g, '').slice(0, 80) || 'clip';
     const extra: Record<string, string> = p.get('download')

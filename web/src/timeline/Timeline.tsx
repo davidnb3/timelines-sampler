@@ -4,7 +4,7 @@ import {
 } from 'react';
 import type { Hit } from '../api.ts';
 import { formatDate } from '../format.ts';
-import { Chevron, Expand, Fit, Minus, Plus } from '../icons.tsx';
+import { Chevron, Expand, Fit, Minus, Play, Plus } from '../icons.tsx';
 import type { Theme } from '../theme.ts';
 import { createEngine, type Engine } from './engine.ts';
 import { fitView, planView, type View } from './model.ts';
@@ -33,6 +33,8 @@ export interface TimelineHandle {
   /** Moves to the previous/next pinned clip and opens it. */
   step: (dir: 1 | -1) => void;
   fit: () => void;
+  /** Flies the camera to a time, keeping the zoom. */
+  focus: (t: number) => void;
 }
 
 interface Props {
@@ -44,11 +46,19 @@ interface Props {
   openKey: string | null;
   onOpen: (key: string | null) => void;
   renderPopover: (item: TimelineItem) => ReactNode;
+  /** The line's height as a fraction of the panel; lower leaves room below it for the story. */
+  lineRatio?: number;
+  /** The clip the story is playing right now. */
+  nowKey?: string | null;
+  storyOpen?: boolean;
+  onStory?: () => void;
+  /** Shown below the line (the story panel). */
+  footer?: ReactNode;
 }
 
 const reduced = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-export function Timeline({ ref, items, theme, tall, onToggleTall, openKey, onOpen, renderPopover }: Props) {
+export function Timeline({ ref, items, theme, tall, onToggleTall, openKey, onOpen, renderPopover, lineRatio = 0.64, nowKey = null, storyOpen = false, onStory, footer }: Props) {
   const host = useRef<HTMLElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const engine = useRef<Engine | null>(null);
@@ -77,6 +87,7 @@ export function Timeline({ ref, items, theme, tall, onToggleTall, openKey, onOpe
   // New, removed or re-tiered nodes need a frame to get their position before they paint.
   useLayoutEffect(() => engine.current?.invalidate(), [items]);
   useEffect(() => engine.current?.refreshColors(), [theme]);
+  useEffect(() => engine.current?.setLineRatio(lineRatio), [lineRatio]);
 
   const times = useCallback(() => itemsRef.current.map((i) => i.t), []);
 
@@ -108,6 +119,7 @@ export function Timeline({ ref, items, theme, tall, onToggleTall, openKey, onOpe
         onOpen(target.key);
       },
       fit: () => void engine.current?.fit(times()),
+      focus: (t) => void engine.current?.flyTo({ center: t }, 900),
     }),
     [onOpen, times],
   );
@@ -145,7 +157,7 @@ export function Timeline({ ref, items, theme, tall, onToggleTall, openKey, onOpe
                 if (el) nodeEls.current.set(item.key, el);
                 else nodeEls.current.delete(item.key);
               }}
-              className={`node${item.entering ? ' is-entering' : ''}${item.leaving ? ' is-leaving' : ''}${open ? ' is-open' : ''}`}
+              className={`node${item.entering ? ' is-entering' : ''}${item.leaving ? ' is-leaving' : ''}${open ? ' is-open' : ''}${item.key === nowKey ? ' is-now' : ''}`}
               style={{ '--tier': item.tier, '--i': Math.min(i, 12) } as CSSProperties}
             >
               <span className="node-stem" />
@@ -166,12 +178,21 @@ export function Timeline({ ref, items, theme, tall, onToggleTall, openKey, onOpe
         })}
       </ol>
 
+      {footer}
+
       <p className={`tl-empty${items.length ? ' is-gone' : ''}`}>
         Star a clip and it lands here, on the day it was recorded.
       </p>
 
       <div className="tl-ui">
-        <span className="tl-title">Timeline{count > 0 && <em>{count} clip{count === 1 ? '' : 's'}</em>}</span>
+        <span className="tl-left">
+          <span className="tl-title">Timeline{count > 0 && <em>{count} clip{count === 1 ? '' : 's'}</em>}</span>
+          {onStory && (
+            <button type="button" className={`tl-story${storyOpen ? ' is-on' : ''}`} onClick={onStory} data-no-pan aria-pressed={storyOpen} title="Play the pinned clips one after another (p)">
+              <Play size={11} />{storyOpen ? 'Story' : 'Play story'}
+            </button>
+          )}
+        </span>
         <span className="tl-controls" data-no-pan>
           <button type="button" className="tl-btn" onClick={() => engine.current?.zoomBy(1 / 1.7)} aria-label="Zoom out" title="Zoom out"><Minus /></button>
           <button type="button" className="tl-btn" onClick={() => engine.current?.zoomBy(1.7)} aria-label="Zoom in" title="Zoom in"><Plus /></button>

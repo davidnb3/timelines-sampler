@@ -1,10 +1,12 @@
 import type { CSSProperties } from 'react';
 import { clipUrl, type Hit } from './api.ts';
 import { formatDate, formatTime, highlightParts } from './format.ts';
-import { Download, External, Pause, Play, Plus, Star } from './icons.tsx';
+import { ClipEditor } from './ClipEditor.tsx';
+import { startClipDrag } from './dragClip.ts';
+import { Download, External, Grip, Loop, Pause, Play, Plus, Star } from './icons.tsx';
 import type { Theme } from './theme.ts';
 import type { Player } from './usePlayer.ts';
-import { Waveform } from './Waveform.tsx';
+import type { Fade, Region } from './trim.ts';
 
 interface Props {
   hit: Hit;
@@ -20,12 +22,15 @@ interface Props {
   onSelect: () => void;
   onPlay: () => void;
   onExpand: () => void;
+  /** The region or its fades were changed on the waveform and let go. */
+  onTrim: (region: Region, fades: Fade) => void;
   /** Adds the clip to the timeline; `from` is where the flying dot starts. */
   onPin: (from: HTMLElement) => void;
   onUnpin: () => void;
 }
 
 export function Quote({ text, terms, small = false }: { text: string; terms: string[]; small?: boolean }) {
+  if (!text) return <blockquote className={small ? 'quote quote-small' : 'quote'}><span className="quote-empty">No transcribed speech in this selection</span></blockquote>;
   return (
     <blockquote className={small ? 'quote quote-small' : 'quote'}>
       <span className="quote-mark" aria-hidden>“</span>
@@ -38,7 +43,7 @@ export function Quote({ text, terms, small = false }: { text: string; terms: str
 }
 
 export function ResultCard({
-  hit, terms, index, selected, player, theme, embedOpen, expanding, pinned, onSelect, onPlay, onExpand, onPin, onUnpin,
+  hit, terms, index, selected, player, theme, embedOpen, expanding, pinned, onSelect, onPlay, onExpand, onTrim, onPin, onUnpin,
 }: Props) {
   const isTv = hit.source === 'tv';
   const isActive = isTv ? embedOpen : player.active?.id === hit.id;
@@ -74,11 +79,25 @@ export function ResultCard({
       )}
       {isTv && embedOpen && <Quote text={hit.text} terms={terms} small />}
 
-      {!isTv && isActive && (
+      {!isTv && isActive && player.win && player.region && (
         <div className="card-wave">
-          <Waveform peaks={player.peaks} progress={player.progress} loading={player.loading} theme={theme} height={52} onSeek={player.seek} />
+          <ClipEditor
+            win={player.win}
+            region={player.region}
+            fades={player.fades}
+            playing={player.playing}
+            theme={theme}
+            position={player.position}
+            height={108}
+            onChange={(edit, commit) => {
+              player.setEdit(edit, commit);
+              if (commit) onTrim(edit.region, edit.fades);
+            }}
+            onSeek={player.seek}
+          />
         </div>
       )}
+      {!isTv && isActive && player.loading && !player.win && <div className="card-wave card-wave-skel" aria-hidden />}
 
       <footer className="card-foot">
         <span className="card-prov">
@@ -109,6 +128,18 @@ export function ResultCard({
           </button>
           {!isTv && (
             <>
+              {isActive && player.win && (
+                <button
+                  type="button"
+                  className={`act act-icon${player.loop ? ' is-on' : ''}`}
+                  aria-pressed={player.loop}
+                  onClick={(e) => { e.stopPropagation(); player.setLoop(!player.loop); }}
+                  title="Loop the selection (r)"
+                  aria-label="Loop"
+                >
+                  <Loop size={14} />
+                </button>
+              )}
               <button
                 type="button"
                 className="act"
@@ -119,6 +150,17 @@ export function ResultCard({
                 <Plus size={13} />
                 {expanding ? 'Adding' : 'Context'}
               </button>
+              <span
+                className="act act-drag"
+                draggable
+                role="button"
+                tabIndex={0}
+                onDragStart={(e) => startClipDrag(e, hit)}
+                onClick={(e) => e.stopPropagation()}
+                title="Drag this clip into your DAW or a Finder window (WAV)"
+              >
+                <Grip size={13} />Drag
+              </span>
               <a
                 className="act"
                 href={clipUrl(hit, 'wav', true)}

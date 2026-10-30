@@ -1,168 +1,228 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { clipUrl, type Hit } from './api.ts';
+import { decodeUrl, Voice, type EndReason } from './audio.ts';
+import { fetchSegments, rangeUrl, type Hit } from './api.ts';
+import { buildPeaks, clampFade, clampNumber, fadeOf, windowFor, MIN_REGION_MS, NO_FADE, type Fade, type Region, type Segment } from './trim.ts';
 
-export const PEAK_COUNT = 240;
-
-/** Reduces decoded audio to PEAK_COUNT loudness peaks in 0..1 for drawing. */
-async function computePeaks(data: ArrayBuffer): Promise<number[]> {
-  const ctx = new OfflineAudioContext(1, 1, 44100);
-  const audio = await ctx.decodeAudioData(data);
-  const samples = audio.getChannelData(0);
-  const bucket = Math.max(1, Math.floor(samples.length / PEAK_COUNT));
-  const peaks: number[] = [];
-  for (let i = 0; i < PEAK_COUNT; i++) {
-    let max = 0;
-    const start = i * bucket;
-    for (let j = start; j < Math.min(samples.length, start + bucket); j++) {
-      const v = Math.abs(samples[j]!);
-      if (v > max) max = v;
-    }
-    peaks.push(max);
-  }
-  const top = Math.max(...peaks, 0.001);
-  return peaks.map((p) => p / top);
+/** The audio around a clip that is loaded for playing and trimming. */
+export interface ClipWindow {
+  startMs: number;
+  endMs: number;
+  buffer: AudioBuffer;
+  peaks: Float32Array;
+  segments: Segment[];
 }
 
 export interface Player {
+  /** The clip whose window is loaded (playing, paused or loading). */
   active: Hit | null;
   playing: boolean;
   loading: boolean;
   error: string | null;
-  progress: number;
-  peaks: number[] | null;
+  loop: boolean;
+  win: ClipWindow | null;
+  /** The part that plays and gets saved. Changes live while an edge is dragged. */
+  region: Region | null;
+  /** Plays, pauses or resumes this clip; loads its window first if needed. */
   toggle: (hit: Hit) => void;
-  /** Reloads the active clip after its bounds changed. No-op for other hits. */
-  replace: (hit: Hit) => void;
   stop: () => void;
-  seek: (fraction: number) => void;
-  audioProps: {
-    ref: (el: HTMLAudioElement | null) => void;
-    onPlay: () => void;
-    onPause: () => void;
-    onEnded: () => void;
-  };
+  /** Plays from `ms` (absolute, inside the region). */
+  seek: (ms: number) => void;
+  /** Fade in and out of the region, drawn and heard (and exported) with it. */
+  fades: Fade;
+  /** `commit` is false while an edge or fade handle is being dragged and true when it is let go. */
+  setEdit: (edit: { region: Region; fades: Fade }, commit: boolean) => void;
+  setLoop: (loop: boolean) => void;
+  /** After the clip's range changed elsewhere (more context): follow it, reloading if it left the window. */
+  replace: (hit: Hit) => void;
+  /** Absolute playback position in ms; meaningful while a window is loaded. */
+  position: () => number;
 }
 
 /**
- * One shared audio player for library clips. The server cuts the clip; it is fetched once as a
- * blob (instant seeking) and also decoded to draw the waveform.
+ * One shared player for library clips. It loads the clip plus some audio on each side and decodes
+ * it, so the clip's edges can be moved (outward too) and heard before anything is saved.
  */
 export function usePlayer(): Player {
-  const audioEl = useRef<HTMLAudioElement | null>(null);
   const [active, setActive] = useState<Hit | null>(null);
-  const [src, setSrc] = useState<string | null>(null);
+  const [win, setWin] = useState<ClipWindow | null>(null);
+  const [region, setRegionState] = useState<Region | null>(null);
+  const [fades, setFadesState] = useState<Fade>(NO_FADE);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState(0);
-  const [peaks, setPeaks] = useState<number[] | null>(null);
-  const abort = useRef<AbortController | null>(null);
+  const [loop, setLoopState] = useState(false);
 
-  const load = useCallback((hit: Hit) => {
-    abort.current?.abort();
-    const ctl = new AbortController();
-    abort.current = ctl;
-    setActive(hit);
-    setSrc(null);
-    setPeaks(null);
-    setProgress(0);
+  const voice = useRef<Voice | null>(null);
+  const abort = useRef<AbortController | null>(null);
+  const resumeAt = useRef(0); // absolute ms to continue from after a pause
+  const live = useRef({ win, region, loop, fades });
+  live.current = { win, region, loop, fades };
+
+  const onEnd = useCallback((reason: EndReason) => {
     setPlaying(false);
-    setError(null);
-    setLoading(true);
-    (async () => {
-      try {
-        const res = await fetch(clipUrl(hit, 'mp3'), { signal: ctl.signal });
-        if (!res.ok) {
-          const body = (await res.json().catch(() => null)) as { error?: string } | null;
-          throw new Error(body?.error ?? `HTTP ${res.status}`);
-        }
-        const buf = await res.arrayBuffer();
-        if (ctl.signal.aborted) return;
-        setSrc(URL.createObjectURL(new Blob([buf], { type: 'audio/mpeg' })));
-        computePeaks(buf.slice(0)).then(
-          (p) => !ctl.signal.aborted && setPeaks(p),
-          () => undefined, // The clip still plays if the waveform cannot be decoded.
-        );
-      } catch (err) {
-        if (ctl.signal.aborted) return;
-        setError(err instanceof Error ? err.message : String(err));
-      } finally {
-        if (!ctl.signal.aborted) setLoading(false);
-      }
-    })();
+    if (reason === 'ended') resumeAt.current = live.current.region?.a ?? 0;
   }, []);
 
-  // Start playback once the blob URL exists; release it when it is replaced.
-  useEffect(() => {
-    const el = audioEl.current;
-    if (!src || !el) return;
-    el.src = src;
-    el.play().catch(() => setPlaying(false));
-    return () => URL.revokeObjectURL(src);
-  }, [src]);
+  /** Starts a voice over `r` from `from` (absolute ms), replacing the current one. */
+  const play = useCallback(
+    async (w: ClipWindow, r: Region, from: number, looping: boolean, f: Fade) => {
+      voice.current?.stop('stolen');
+      const next = new Voice({
+        buffer: w.buffer,
+        from: (r.a - w.startMs) / 1000,
+        to: Math.min((r.b - w.startMs) / 1000, w.buffer.duration),
+        loop: looping,
+        fadeIn: f.inMs / 1000,
+        fadeOut: f.outMs / 1000,
+        onEnd,
+      });
+      voice.current = next;
+      await next.start((from - w.startMs) / 1000);
+      if (voice.current === next) setPlaying(true);
+    },
+    [onEnd],
+  );
 
-  // Smooth playhead while playing.
-  useEffect(() => {
-    if (!playing) return;
-    let raf = 0;
-    const tick = () => {
-      const el = audioEl.current;
-      if (el && Number.isFinite(el.duration) && el.duration > 0) setProgress(el.currentTime / el.duration);
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [playing]);
+  const position = useCallback((): number => {
+    const w = live.current.win;
+    if (!w) return 0;
+    const v = voice.current;
+    return v?.playing ? w.startMs + v.position() * 1000 : resumeAt.current;
+  }, []);
+
+  const load = useCallback(
+    (hit: Hit) => {
+      abort.current?.abort();
+      voice.current?.stop('stolen');
+      const ctl = new AbortController();
+      abort.current = ctl;
+      setActive(hit);
+      setWin(null);
+      setRegionState(null);
+      setFadesState(fadeOf(hit));
+      setPlaying(false);
+      setError(null);
+      setLoading(true);
+      (async () => {
+        try {
+          const span = windowFor(hit.startMs, hit.endMs);
+          const [buffer, segments] = await Promise.all([
+            decodeUrl(rangeUrl(hit.ref, span.startMs, span.endMs), ctl.signal),
+            hit.episodeId != null ? fetchSegments(hit.episodeId, span.startMs, span.endMs, ctl.signal).catch(() => []) : [],
+          ]);
+          if (ctl.signal.aborted) return;
+          const w: ClipWindow = {
+            startMs: span.startMs,
+            // The recording may end before the padded window does.
+            endMs: Math.min(span.endMs, span.startMs + buffer.duration * 1000),
+            buffer,
+            peaks: buildPeaks(Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i)), buffer.sampleRate),
+            segments,
+          };
+          const r: Region = { a: hit.startMs, b: Math.min(hit.endMs, w.endMs) };
+          setWin(w);
+          setRegionState(r);
+          resumeAt.current = r.a;
+          await play(w, r, r.a, live.current.loop, fadeOf(hit));
+        } catch (err) {
+          if (ctl.signal.aborted) return;
+          setError(err instanceof Error ? err.message : String(err));
+        } finally {
+          if (!ctl.signal.aborted) setLoading(false);
+        }
+      })();
+    },
+    [play],
+  );
 
   const toggle = useCallback(
     (hit: Hit) => {
-      const el = audioEl.current;
-      if (active?.id === hit.id && src && el) {
-        if (el.paused) void el.play();
-        else el.pause();
+      const { win: w, region: r, loop: looping, fades: f } = live.current;
+      if (active?.id === hit.id && w && r) {
+        const v = voice.current;
+        if (v?.playing) {
+          resumeAt.current = position();
+          v.stop('stopped');
+        } else {
+          const from = resumeAt.current >= r.a && resumeAt.current < r.b - 20 ? resumeAt.current : r.a;
+          void play(w, r, from, looping, f);
+        }
         return;
       }
-      el?.pause();
       load(hit);
     },
-    [active, src, load],
+    [active, load, play, position],
   );
 
   const stop = useCallback(() => {
     abort.current?.abort();
-    audioEl.current?.pause();
+    voice.current?.stop('stopped');
+    voice.current = null;
     setActive(null);
-    setSrc(null);
-    setPeaks(null);
+    setWin(null);
+    setRegionState(null);
     setPlaying(false);
     setLoading(false);
-    setProgress(0);
   }, []);
 
-  const seek = useCallback((fraction: number) => {
-    const el = audioEl.current;
-    if (!el || !Number.isFinite(el.duration)) return;
-    const f = Math.min(1, Math.max(0, fraction));
-    el.currentTime = f * el.duration;
-    setProgress(f);
-  }, []);
+  const seek = useCallback(
+    (ms: number) => {
+      const { win: w, region: r, loop: looping, fades: f } = live.current;
+      if (!w || !r) return;
+      const at = clampNumber(ms, r.a, r.b - 20);
+      resumeAt.current = at;
+      void play(w, r, at, looping, f);
+    },
+    [play],
+  );
+
+  const setEdit = useCallback(
+    (edit: { region: Region; fades: Fade }, commit: boolean) => {
+      const w = live.current.win;
+      if (!w) return;
+      const next = { a: edit.region.a, b: Math.max(edit.region.b, edit.region.a + MIN_REGION_MS) };
+      const nextFades = clampFade(edit.fades.inMs, edit.fades.outMs, next.b - next.a);
+      setRegionState(next);
+      setFadesState(nextFades);
+      // Retarget the sound only when a handle is let go, so dragging does not stutter.
+      if (commit && voice.current?.playing) {
+        const here = position();
+        void play(w, next, here >= next.a && here < next.b ? here : next.a, live.current.loop, nextFades);
+      } else if (commit) {
+        resumeAt.current = next.a;
+      }
+    },
+    [play, position],
+  );
+
+  const setLoop = useCallback(
+    (looping: boolean) => {
+      setLoopState(looping);
+      const { win: w, region: r, fades: f } = live.current;
+      if (w && r && voice.current?.playing) void play(w, r, position(), looping, f);
+    },
+    [play, position],
+  );
 
   const replace = useCallback(
     (hit: Hit) => {
+      const { win: w, region: r } = live.current;
       if (active?.id !== hit.id) return;
-      audioEl.current?.pause();
-      load(hit);
+      const inside = w && hit.startMs >= w.startMs && hit.endMs <= w.endMs;
+      if (!w || !inside) return load(hit);
+      const f = fadeOf(hit);
+      const now = live.current.fades;
+      if (r && (r.a !== hit.startMs || r.b !== hit.endMs || f.inMs !== now.inMs || f.outMs !== now.outMs)) {
+        setEdit({ region: { a: hit.startMs, b: hit.endMs }, fades: f }, true);
+      }
     },
-    [active, load],
+    [active, load, setEdit],
   );
 
-  return {
-    active, playing, loading, error, progress, peaks, toggle, replace, stop, seek,
-    audioProps: {
-      ref: (el) => { audioEl.current = el; },
-      onPlay: () => setPlaying(true),
-      onPause: () => setPlaying(false),
-      onEnded: () => { setPlaying(false); setProgress(1); },
-    },
-  };
+  useEffect(() => () => {
+    abort.current?.abort();
+    voice.current?.stop('stopped');
+  }, []);
+
+  return { active, playing, loading, error, loop, win, region, fades, toggle, stop, seek, setEdit, setLoop, replace, position };
 }

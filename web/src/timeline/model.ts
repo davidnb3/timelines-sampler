@@ -43,8 +43,9 @@ export function parseDate(date: string | null | undefined): number | null {
 }
 
 /** Identity of a saved clip: the same recording range saved twice is the same clip. */
-export function pinKey(hit: Pick<Hit, 'ref' | 'startMs' | 'endMs'>): string {
-  return `${hit.ref}|${hit.startMs}|${hit.endMs}`;
+export function pinKey(hit: Pick<Hit, 'ref' | 'startMs' | 'endMs' | 'fadeInMs' | 'fadeOutMs'>): string {
+  const fades = hit.fadeInMs || hit.fadeOutMs ? `|${hit.fadeInMs ?? 0}|${hit.fadeOutMs ?? 0}` : '';
+  return `${hit.ref}|${hit.startMs}|${hit.endMs}${fades}`;
 }
 
 /** Where a clip sits on the timeline: its recording date, or the day it was saved when undated. */

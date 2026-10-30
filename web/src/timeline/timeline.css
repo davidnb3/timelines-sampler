@@ -16,6 +16,11 @@
   animation: tl-in 1.4s 0.35s var(--ease-out) backwards;
 }
 
+/* A popover reaches up over the prompt area, so the timeline rises above it while one is open. */
+.tl:has(.node-pop) {
+  z-index: 30;
+}
+
 .tl.is-dragging {
   cursor: grabbing;
 }
@@ -27,6 +32,12 @@
 }
 
 .room[data-phase='active'] {
+  --tl-h: var(--dock-h);
+  --tl-top: calc(100dvh - var(--dock-h));
+}
+
+/* With the story open the timeline docks at the bottom whichever phase the room is in. */
+.room[data-story='open'] {
   --tl-h: var(--dock-h);
   --tl-top: calc(100dvh - var(--dock-h));
 }
@@ -403,7 +414,7 @@
   overflow: hidden;
 }
 
-.pin .waveform {
+.pin-wave {
   margin-top: 10px;
 }
 
@@ -509,4 +520,169 @@
 @media (max-width: 640px) {
   .tl-ui { left: 16px; right: 16px; }
   .node-name { display: none; }
+}
+
+/* Story: the button next to the title, the clip that is playing, and the panel below the line. */
+
+.tl-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  pointer-events: none;
+}
+
+.tl-story {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 13px 0 11px;
+  border: 1px solid rgb(var(--accent) / 0.5);
+  border-radius: 999px;
+  background: rgb(var(--accent) / 0.1);
+  color: rgb(var(--accent));
+  font: 600 11.5px var(--font-sans);
+  letter-spacing: 0.02em;
+  pointer-events: auto;
+  cursor: pointer;
+  transition: background 0.25s, color 0.25s, transform 0.4s var(--ease-spring), box-shadow 0.3s;
+}
+
+.tl-story:hover {
+  background: rgb(var(--accent) / 0.2);
+}
+
+.tl-story:active {
+  transform: scale(0.95);
+}
+
+.tl-story.is-on {
+  background: rgb(var(--accent));
+  color: #fff;
+  box-shadow: 0 0 20px rgb(var(--accent) / 0.45);
+}
+
+.node.is-now .node-dot {
+  border-color: rgb(var(--accent));
+  box-shadow: 0 0 0 5px rgb(var(--accent) / 0.2), 0 0 26px rgb(var(--accent) / 0.7);
+}
+
+.node.is-now .node-dot::after {
+  background: rgb(var(--accent));
+}
+
+.node.is-now .node-label {
+  opacity: 1;
+}
+
+.story {
+  position: absolute;
+  left: 28px;
+  right: 28px;
+  top: calc(var(--line-y) + 82px);
+  bottom: 52px;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 10px;
+  cursor: default;
+  animation: story-in 0.7s 0.25s var(--ease-out) backwards;
+}
+
+.story.is-leaving {
+  opacity: 0;
+  transform: translateY(16px);
+  pointer-events: none;
+  transition: opacity 0.22s var(--ease-io), transform 0.3s var(--ease-io);
+  animation: none;
+}
+
+@keyframes story-in {
+  from { opacity: 0; transform: translateY(18px); }
+}
+
+.story-wave {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+}
+
+.story-canvas {
+  display: block;
+  width: 100%;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.story-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hair);
+}
+
+.story-play {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(var(--accent));
+  color: #fff;
+  box-shadow: 0 0 18px rgb(var(--accent) / 0.4);
+  transition: transform 0.4s var(--ease-spring), opacity 0.3s, box-shadow 0.3s;
+}
+
+.story-play:hover:not(:disabled) {
+  transform: scale(1.08);
+}
+
+.story-play:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.story-play:disabled {
+  opacity: 0.35;
+  box-shadow: none;
+  cursor: default;
+}
+
+.story-time {
+  flex: none;
+  font: 600 12px var(--font-mono);
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+}
+
+.story-status {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 500 10.5px var(--font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.story-actions {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
+  flex: none;
+}
+
+.act.is-disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+@media (max-width: 640px) {
+  .story { left: 16px; right: 16px; }
+  .story-status { display: none; }
 }

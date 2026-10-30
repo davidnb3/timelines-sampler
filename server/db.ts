@@ -190,6 +190,21 @@ export function getSegmentWindow(
   }[];
 }
 
+/** Segments that overlap the time range [fromMs, toMs], in order. */
+export function getSegmentsBetween(
+  conn: DatabaseSync,
+  episodeId: number,
+  fromMs: number,
+  toMs: number,
+): { idx: number; startMs: number; endMs: number; text: string }[] {
+  return conn
+    .prepare(
+      `SELECT idx, start_ms AS startMs, end_ms AS endMs, text FROM segments
+       WHERE episode_id = ? AND end_ms > ? AND start_ms < ? ORDER BY idx`,
+    )
+    .all(episodeId, fromMs, toMs) as unknown as { idx: number; startMs: number; endMs: number; text: string }[];
+}
+
 export function listTopics(conn: DatabaseSync): { topic: string; episodes: number }[] {
   return conn
     .prepare('SELECT topic, COUNT(*) AS episodes FROM episode_topics GROUP BY topic ORDER BY episodes DESC, topic')

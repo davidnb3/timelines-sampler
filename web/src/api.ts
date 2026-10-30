@@ -1,4 +1,5 @@
 import type { Hit, SearchResponse, TopicCount } from '../../server/types.ts';
+import type { Segment } from './trim.ts';
 
 export type { Hit, SearchResponse, TopicCount };
 export type SourceId = Hit['source'];
@@ -48,6 +49,41 @@ export function clipUrl(hit: Hit, fmt: ClipFormat, download = false): string {
     fmt,
     name: `${hit.show} - ${hit.title}`.slice(0, 60),
   });
+  if (hit.fadeInMs) params.set('fi', String(hit.fadeInMs));
+  if (hit.fadeOutMs) params.set('fo', String(hit.fadeOutMs));
   if (download) params.set('download', '1');
   return `/api/clip?${params}`;
+}
+
+/** The same clip endpoint with explicit bounds: the editor loads a window wider than the clip. */
+export function rangeUrl(ref: string, startMs: number, endMs: number, fmt: ClipFormat = 'mp3', fade?: { inMs: number; outMs: number }): string {
+  const params = new URLSearchParams({ ref, start: String(Math.round(startMs)), end: String(Math.round(endMs)), fmt });
+  if (fade?.inMs) params.set('fi', String(fade.inMs));
+  if (fade?.outMs) params.set('fo', String(fade.outMs));
+  return `/api/clip?${params}`;
+}
+
+/** Transcript segments that overlap a time range of an episode. */
+export const fetchSegments = (episodeId: number, fromMs: number, toMs: number, signal?: AbortSignal) =>
+  getJson<Segment[]>(
+    `/api/segments?${new URLSearchParams({ episode: String(episodeId), from: String(Math.round(fromMs)), to: String(Math.round(toMs)) })}`,
+    signal,
+  );
+
+/** Clips of a story as the bounce endpoint expects them. */
+export interface StoryClip {
+  ref: string;
+  start: number;
+  end: number;
+  fi?: number;
+  fo?: number;
+}
+
+/** The silence between clips, in the story player and in the bounced file alike. */
+export const STORY_GAP_MS = 400;
+
+export function bounceUrl(clips: StoryClip[], fmt: ClipFormat, name = 'Back then story', download = true): string {
+  const params = new URLSearchParams({ clips: JSON.stringify(clips), gap: String(STORY_GAP_MS), fmt, name });
+  if (download) params.set('download', '1');
+  return `/api/bounce?${params}`;
 }

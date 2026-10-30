@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { CLIP_DIR, USER_AGENT } from './config.ts';
 import { getEpisode } from './db.ts';
+import { clampFade, fadeFilters, hasFade, type Fade } from './fade.ts';
 import { cbrLayout, id3Length } from './mp3.ts';
 import { inputFormatArgs, run } from './whisper.ts';
 
@@ -94,6 +95,7 @@ export async function cutClip(
   startMs: number,
   endMs: number,
   format: ClipFormat,
+  fadeRequest?: Fade,
 ): Promise<string> {
   const original = resolveRef(conn, ref);
   if (!original) throw new ClipError(404, 'Unknown clip reference');
@@ -103,7 +105,10 @@ export async function cutClip(
   if (endMs - startMs > MAX_CLIP_MS) throw new ClipError(400, 'Clip is longer than 10 minutes');
 
   fs.mkdirSync(CLIP_DIR, { recursive: true });
-  const key = crypto.createHash('sha1').update(`${original}|${startMs}|${endMs}|${format}`).digest('hex').slice(0, 24);
+  const fade = hasFade(fadeRequest) ? clampFade(fadeRequest.inMs, fadeRequest.outMs, endMs - startMs) : undefined;
+  // Clips without fades keep the cache keys they always had.
+  const fadeKey = hasFade(fade) ? `|fade${fade.inMs}-${fade.outMs}` : '';
+  const key = crypto.createHash('sha1').update(`${original}|${startMs}|${endMs}|${format}${fadeKey}`).digest('hex').slice(0, 24);
   const out = path.join(CLIP_DIR, `${key}.${format}`);
   if (fs.existsSync(out)) return out;
 
@@ -125,10 +130,12 @@ export async function cutClip(
         fs.writeFileSync(piece, bytes);
         // Seconds from the start of the fetched piece to the requested clip start.
         const skip = Math.max(0, startS - (from - offset) / bytesPerSec);
-        await run('ffmpeg', [
-          '-v', 'error', '-y', '-f', 'mp3', '-i', piece,
-          '-ss', skip.toFixed(3), '-t', lengthS.toFixed(3), ...encode, tmp,
-        ]);
+        // With a fade the trim has to happen inside the filter chain: ffmpeg applies output-side
+        // `-ss` after the filters, which would put the fade before the cut.
+        const trim = hasFade(fade)
+          ? ['-af', [`atrim=start=${skip.toFixed(3)}:duration=${lengthS.toFixed(3)}`, 'asetpts=PTS-STARTPTS', ...fadeFilters(fade, endMs - startMs)].join(',')]
+          : ['-ss', skip.toFixed(3), '-t', lengthS.toFixed(3)];
+        await run('ffmpeg', ['-v', 'error', '-y', '-f', 'mp3', '-i', piece, ...trim, ...encode, tmp]);
         fs.renameSync(tmp, out);
         return out;
       } catch {
@@ -140,6 +147,7 @@ export async function cutClip(
     await run('ffmpeg', [
       '-v', 'error', '-y',
       '-ss', startS.toFixed(3), ...inputFormatArgs(source.url), '-i', source.url, '-t', lengthS.toFixed(3),
+      ...(hasFade(fade) ? ['-af', fadeFilters(fade, endMs - startMs).join(',')] : []),
       ...encode, tmp,
     ]);
     fs.renameSync(tmp, out);

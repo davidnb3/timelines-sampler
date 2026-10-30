@@ -26,6 +26,9 @@ export interface Hit {
    * (its media files answer 401), so these hits can be watched but not cut or saved.
    */
   embedUrl?: string | null;
+  /** Fade in and out of the clip, in ms, set by the editor; absent means none. */
+  fadeInMs?: number;
+  fadeOutMs?: number;
   topics: string[];
 }
 

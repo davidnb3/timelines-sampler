@@ -11,6 +11,9 @@ import { useTheme } from './theme.ts';
 import { pinKey, pinTime } from './timeline/model.ts';
 import { Timeline, type TimelineHandle, type TimelineItem } from './timeline/Timeline.tsx';
 import { useSavedClips } from './timeline/useSavedClips.ts';
+import { StoryPanel } from './story/StoryPanel.tsx';
+import { useStory } from './story/useStory.ts';
+import { selectText, type Fade, type Region } from './trim.ts';
 import { usePlayer } from './usePlayer.ts';
 
 interface SourceResult {
@@ -35,8 +38,10 @@ const SHORTCUTS: [string, string][] = [
   ['space', 'Play or pause'],
   ['s', 'Add to timeline'],
   ['e', 'More context'],
+  ['r', 'Loop the selection'],
   ['d', 'Save WAV'],
   ['[  ]', 'Previous / next pinned clip'],
+  ['p', 'Play the story'],
   ['f', 'Fit the timeline'],
   ['t', 'Enlarge timeline'],
   ['l', 'Lights on / off'],
@@ -251,6 +256,25 @@ export function App() {
     }
   }, []);
 
+  /** A clip was trimmed or faded on its waveform: keep the new range, fades and the transcript text that falls inside it. */
+  const trim = useCallback((hit: Hit, region: Region, fades: Fade) => {
+    const win = playerRef.current.win;
+    if (!win) return;
+    const picked = selectText(win.segments, region);
+    const next: Hit = {
+      ...hit,
+      startMs: Math.round(region.a),
+      endMs: Math.round(region.b),
+      text: picked.text,
+      firstIdx: picked.firstIdx ?? hit.firstIdx,
+      lastIdx: picked.lastIdx ?? hit.lastIdx,
+      // Absent rather than 0, so clips without fades look exactly as they did before fades existed.
+      fadeInMs: fades.inMs > 0 ? fades.inMs : undefined,
+      fadeOutMs: fades.outMs > 0 ? fades.outMs : undefined,
+    };
+    setResults((p) => ({ ...p, library: { ...p.library, hits: p.library.hits.map((h) => (h.id === hit.id ? next : h)) } }));
+  }, []);
+
   // The timeline, in date order. Neighbours get different stem heights so labels do not collide.
   const items = useMemo<TimelineItem[]>(
     () =>
@@ -268,6 +292,48 @@ export function App() {
         })),
     [saved.clips, saved.entering, saved.leaving],
   );
+
+  const story = useStory(items);
+
+  // Opening the story gives the timeline room: the panel grows tall, then returns to its size on close.
+  const tallBeforeStory = useRef(false);
+  useEffect(() => {
+    if (story.open) {
+      setTall((cur) => {
+        tallBeforeStory.current = cur;
+        return true;
+      });
+    } else {
+      setTall(tallBeforeStory.current);
+    }
+  }, [story.open]);
+
+  /** The enlarge/shrink button and `t`. Shrinking the dock while the story is open closes the story too: the panel needs the room. */
+  const toggleTall = useCallback(() => {
+    if (story.open) {
+      tallBeforeStory.current = false;
+      story.close();
+    } else {
+      setTall((v) => !v);
+    }
+  }, [story]);
+
+  // The panel stays on screen for a moment after closing so it can fade out instead of vanishing.
+  const [storyShown, setStoryShown] = useState(false);
+  useEffect(() => {
+    if (story.open) {
+      setStoryShown(true);
+      return;
+    }
+    const id = window.setTimeout(() => setStoryShown(false), 320);
+    return () => window.clearTimeout(id);
+  }, [story.open]);
+
+  // While the story plays, the camera visits each clip as its turn comes.
+  useEffect(() => {
+    const item = story.clips[story.nowIndex];
+    if (item) timelineRef.current?.focus(item.t);
+  }, [story.nowIndex, story.clips]);
 
   const isPinned = useCallback((hit: Hit) => {
     const key = pinKey(hit);
@@ -357,21 +423,24 @@ export function App() {
           }
           break;
         case 'e': if (current) void expand(current); break;
+        case 'r': playerRef.current.setLoop(!playerRef.current.loop); break;
         case 'd':
           if (current && current.source === 'library') {
             window.location.assign(clipUrl(current, 'wav', true));
             void pin(current, pinButton(current));
           }
           break;
+        case 'p': if (story.open) story.toggle(); else story.openStory(); break;
         case '[': timelineRef.current?.step(-1); break;
         case ']': timelineRef.current?.step(1); break;
         case 'f': timelineRef.current?.fit(); break;
-        case 't': setTall((v) => !v); break;
+        case 't': toggleTall(); break;
         case 'l': toggleTheme(); break;
         case '?': setHelpOpen((v) => !v); break;
         case 'Escape':
           if (helpOpen) setHelpOpen(false);
           else if (openPin) setOpenPin(null);
+          else if (story.open) story.close();
           else {
             playerRef.current.stop();
             setEmbedId(null);
@@ -381,7 +450,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [hits, effectiveSelected, expand, play, pin, unpin, isPinned, toggleTheme, helpOpen, openPin]);
+  }, [hits, effectiveSelected, expand, play, pin, unpin, isPinned, toggleTheme, toggleTall, helpOpen, openPin, story]);
 
   const onInputKey = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
@@ -418,12 +487,12 @@ export function App() {
     .join('   ·   ');
 
   return (
-    <div ref={roomRef} className="room" data-phase={phase} data-dock={tall ? 'tall' : 'low'}>
+    <div ref={roomRef} className="room" data-phase={phase} data-dock={tall ? 'tall' : 'low'} data-story={story.open ? 'open' : 'closed'}>
       <div className="room-bg" aria-hidden />
       <div className="room-grain" aria-hidden />
 
       <header className="bar">
-        <span className="brand"><Logo playing={player.playing} /><span className="brand-name">Back then</span></span>
+        <span className="brand"><Logo playing={player.playing || story.playing} /><span className="brand-name">Back then</span></span>
         <span className="bar-right">
           <span className={`status${anyLoading ? ' is-busy' : ''}`} role="status" aria-live="polite">
             <i aria-hidden />{statusText}
@@ -547,6 +616,7 @@ export function App() {
             onSelect={() => setSelectedId(hit.id)}
             onPlay={() => { setSelectedId(hit.id); play(hit); }}
             onExpand={() => void expand(hit)}
+            onTrim={(r, f) => trim(hit, r, f)}
             onPin={(from) => void pin(hit, from)}
             onUnpin={() => unpin(hit)}
           />
@@ -558,7 +628,12 @@ export function App() {
         items={items}
         theme={theme}
         tall={tall}
-        onToggleTall={() => setTall((v) => !v)}
+        onToggleTall={toggleTall}
+        lineRatio={story.open ? 0.4 : 0.64}
+        nowKey={story.nowKey}
+        storyOpen={story.open}
+        onStory={story.open ? story.close : story.openStory}
+        footer={storyShown ? <StoryPanel story={story} theme={theme} leaving={!story.open} /> : null}
         openKey={openPin}
         onOpen={setOpenPin}
         renderPopover={(item) => (
@@ -574,7 +649,6 @@ export function App() {
           />
         )}
       />
-      <audio {...player.audioProps} hidden />
     </div>
   );
 }

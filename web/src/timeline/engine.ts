@@ -28,6 +28,8 @@ export interface Engine {
   /** Starts zoomed far out and settles on `target`: the opening shot. */
   intro: (target: View) => void;
   zoomBy: (factor: number) => void;
+  /** Where the line sits as a fraction of the height; moves there smoothly. */
+  setLineRatio: (ratio: number) => void;
   fit: (times: number[]) => Promise<void>;
   width: () => number;
   /** Screen position where time `t` lands for `view`, on the timeline's line. */
@@ -50,6 +52,8 @@ const LN_MIN = Math.log(MIN_PPY);
 const LN_MAX = Math.log(MAX_PPY);
 /** The line sits below the middle: nodes stand above it, tick labels hang below. */
 export const LINE_RATIO = 0.64;
+/** How fast the line moves when its ratio changes, per second. */
+const RATIO_RATE = 7;
 const MONO = "'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 
 const easeInOut = (p: number) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
@@ -72,11 +76,13 @@ export function createEngine(o: EngineOptions): Engine {
   let last = 0;
   let dragging = false;
   let lastFocus = '';
+  let ratio = LINE_RATIO;
+  let targetRatio = LINE_RATIO;
   let ink = '236,236,232';
   let accent = '255,106,61';
 
   const ppyNow = () => Math.exp(ln);
-  const lineY = () => Math.round(h * LINE_RATIO);
+  const lineY = () => Math.round(h * ratio);
   const xOf = (t: number) => w / 2 + ((t - center) / YEAR_MS) * ppyNow();
 
   function refreshColors() {
@@ -207,6 +213,13 @@ export function createEngine(o: EngineOptions): Engine {
     last = now;
     measure();
     let moving = false;
+
+    if (ratio !== targetRatio) {
+      ratio += (targetRatio - ratio) * (1 - Math.exp(-dt * RATIO_RATE));
+      if (Math.abs(targetRatio - ratio) < 0.0005) ratio = targetRatio;
+      host.style.setProperty('--line-y', `${lineY()}px`);
+      moving = true;
+    }
 
     if (anim) {
       const p = clamp((now - anim.start) / anim.dur, 0, 1);
@@ -377,6 +390,10 @@ export function createEngine(o: EngineOptions): Engine {
       center = tCenter = clampTime(target.center);
       ln = tLn = LN_MIN;
       void flyTo(target, 2200);
+    },
+    setLineRatio(next) {
+      targetRatio = next;
+      invalidate();
     },
     zoomBy(factor) {
       cancelAnim();

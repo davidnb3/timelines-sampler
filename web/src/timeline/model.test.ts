@@ -30,6 +30,9 @@ describe('pinKey and pinTime', () => {
   it('identifies a clip by recording and range', () => {
     assert.equal(pinKey({ ref: 'ep:3', startMs: 100, endMs: 900 }), 'ep:3|100|900');
     assert.notEqual(pinKey({ ref: 'ep:3', startMs: 100, endMs: 900 }), pinKey({ ref: 'ep:3', startMs: 100, endMs: 1900 }));
+    // The same range with a fade is a different clip; without fades the key is what it always was.
+    assert.notEqual(pinKey({ ref: 'ep:3', startMs: 100, endMs: 900 }), pinKey({ ref: 'ep:3', startMs: 100, endMs: 900, fadeInMs: 50 }));
+    assert.equal(pinKey({ ref: 'ep:3', startMs: 100, endMs: 900, fadeInMs: 0, fadeOutMs: 0 }), 'ep:3|100|900');
   });
 
   it('falls back to the save time for undated clips', () => {
