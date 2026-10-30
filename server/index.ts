@@ -110,7 +110,7 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse, ur
 function serveWeb(req: http.IncomingMessage, res: http.ServerResponse, url: URL): void {
   if (!fs.existsSync(WEB_DIST)) {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    return void res.end('telly API is running. Start the UI with `npm run dev`, or build it with `npm run build`.');
+    return void res.end('Back then API is running. Start the UI with `npm run dev`, or build it with `npm run build`.');
   }
   const rel = path.normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '');
   let file = path.join(WEB_DIST, rel);
@@ -136,5 +136,5 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, '127.0.0.1', () => {
   const s = libraryStats(conn);
-  console.log(`telly API on http://127.0.0.1:${PORT}  (${s.episodes} recordings, ${s.segments} segments indexed)`);
+  console.log(`Back then API on http://127.0.0.1:${PORT}  (${s.episodes} recordings, ${s.segments} segments indexed)`);
 });

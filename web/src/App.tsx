@@ -95,8 +95,8 @@ export function App() {
   const [submitted, setSubmitted] = useState('');
   const [runId, setRunId] = useState(0);
   const [results, setResults] = useState(EMPTY);
-  const [sources, setSources] = useState<Record<SourceId, boolean>>(() => load('telly.sources', { library: true, tv: true }));
-  const [topics, setTopics] = useState<string[]>(() => load('telly.topics', []));
+  const [sources, setSources] = useState<Record<SourceId, boolean>>(() => load('back-then.sources', { library: true, tv: true }));
+  const [topics, setTopics] = useState<string[]>(() => load('back-then.topics', []));
   const [availableTopics, setAvailableTopics] = useState<TopicCount[]>([]);
   const [health, setHealth] = useState<Health | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -113,7 +113,7 @@ export function App() {
   const timelineRef = useRef<TimelineHandle>(null);
   const abortRef = useRef<AbortController | null>(null);
   const submittedRef = useRef('');
-  const history = useRef<string[]>(load('telly.history', []));
+  const history = useRef<string[]>(load('back-then.history', []));
   const historyPos = useRef(-1);
 
   useEffect(() => {
@@ -159,7 +159,7 @@ export function App() {
       setEmbedId(null);
       historyPos.current = -1;
       history.current = [q, ...history.current.filter((h) => h !== q)].slice(0, 30);
-      save('telly.history', history.current);
+      save('back-then.history', history.current);
       window.history.replaceState(null, '', `?${new URLSearchParams({ q })}`);
 
       const enabled = (Object.keys(sources) as SourceId[]).filter((s) => sources[s]);
@@ -297,7 +297,7 @@ export function App() {
   const toggleTopic = (topic: string) => {
     setTopics((cur) => {
       const next = cur.includes(topic) ? cur.filter((t) => t !== topic) : [...cur, topic];
-      save('telly.topics', next);
+      save('back-then.topics', next);
       return next;
     });
   };
@@ -306,7 +306,7 @@ export function App() {
     setSources((cur) => {
       const next = { ...cur, [source]: !cur[source] };
       if (!next.library && !next.tv) return cur;
-      save('telly.sources', next);
+      save('back-then.sources', next);
       return next;
     });
   };
@@ -407,7 +407,7 @@ export function App() {
       <div className="room-grain" aria-hidden />
 
       <header className="bar">
-        <span className="brand"><Logo playing={player.playing} />telly</span>
+        <span className="brand"><Logo playing={player.playing} />Back then</span>
         <span className="bar-right">
           <span className={`status${anyLoading ? ' is-busy' : ''}`} role="status" aria-live="polite">
             <i aria-hidden />{statusText}
@@ -433,7 +433,7 @@ export function App() {
       </header>
 
       <section className="ask" aria-label="Search">
-        <p className="ask-eyebrow">What was said?</p>
+        <p className="ask-eyebrow">Back then. What was said?</p>
         <label className="prompt">
           <span className="prompt-glyph">ask ›</span>
           <span className="prompt-field">

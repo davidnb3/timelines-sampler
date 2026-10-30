@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-const API_PORT = Number(process.env.TELLY_PORT ?? 4747);
+const API_PORT = Number(process.env.BACK_THEN_PORT ?? 4747);
 
 export default defineConfig({
   root: 'web',

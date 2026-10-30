@@ -1,4 +1,4 @@
-/* telly: a dark room with a timeline in it.
+/* Back then: a dark room with a timeline in it.
    Colours are space-separated RGB triples (`--ink`, `--accent`) so they can take any alpha: rgb(var(--ink) / .4).
    The timeline canvas reads the same two variables, so both themes work there too. */
 

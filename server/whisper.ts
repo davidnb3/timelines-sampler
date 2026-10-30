@@ -64,14 +64,14 @@ interface WhisperJson {
  * 16 kHz mono WAV, so nothing is downloaded in full first; `maxSeconds` caps how much is read.
  */
 export async function transcribe(source: string, maxSeconds: number): Promise<SegmentInput[]> {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'telly-'));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'back-then-'));
   const wav = path.join(tmp, 'audio.wav');
   try {
     await run('ffmpeg', ['-v', 'error', '-y', ...inputFormatArgs(source), '-i', source, '-t', String(maxSeconds), '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', wav]);
     const base = path.join(tmp, 'out');
     // The Homebrew whisper.cpp 1.9.5 Metal backend aborts on Apple Silicon (ggml scheduler assertion),
-    // so run on CPU unless TELLY_WHISPER_GPU=1 says a working build is installed.
-    const device = process.env.TELLY_WHISPER_GPU === '1' ? [] : ['-ng'];
+    // so run on CPU unless BACK_THEN_WHISPER_GPU=1 says a working build is installed.
+    const device = process.env.BACK_THEN_WHISPER_GPU === '1' ? [] : ['-ng'];
     await run('whisper-cli', [
       '-m', MODEL_PATH, '-f', wav, '-l', 'en', '-oj', '-of', base, '-np', '-sns', ...device,
       '-t', String(Math.max(4, os.cpus().length - 2)),

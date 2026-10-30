@@ -3,14 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>telly</title>
+    <title>Back then</title>
     <meta name="color-scheme" content="dark light" />
     <meta name="theme-color" content="#050506" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ff6a3d'/%3E%3Cpath d='M6 16h2v0M10 12v8M14 8v16M18 11v10M22 14v4M26 16v0' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E" />
     <script>
       // Apply the saved theme before first paint to avoid a flash.
       try {
-        var t = localStorage.getItem('telly.theme');
+        // The app used to be called telly: carry its saved state over to the new key names once.
+        ['theme', 'timeline', 'sources', 'topics', 'history'].forEach(function (k) {
+          var old = localStorage.getItem('telly.' + k);
+          if (old === null) return;
+          if (localStorage.getItem('back-then.' + k) === null) localStorage.setItem('back-then.' + k, old);
+          localStorage.removeItem('telly.' + k);
+        });
+        var t = localStorage.getItem('back-then.theme');
         document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark';
       } catch (e) {}
     </script>

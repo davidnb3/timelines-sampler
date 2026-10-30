@@ -2,7 +2,7 @@ import { useCallback, useLayoutEffect, useState } from 'react';
 
 export type Theme = 'light' | 'dark';
 
-const KEY = 'telly.theme';
+const KEY = 'back-then.theme';
 
 function stored(): Theme | null {
   try {

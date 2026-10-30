@@ -8,7 +8,7 @@ export interface SavedClip {
   savedAt: number;
 }
 
-const STORAGE_KEY = 'telly.timeline';
+const STORAGE_KEY = 'back-then.timeline';
 
 /** How long a new clip keeps its "just landed" styling, and how long a removed one takes to fade. */
 const ENTER_MS = 1400;
