@@ -6,6 +6,7 @@ import { CLIP_DIR, USER_AGENT } from './config.ts';
 import { getEpisode } from './db.ts';
 import { clampFade, fadeFilters, hasFade, NO_FADE, withDeclick, type Fade } from './fade.ts';
 import { cbrLayout, id3Length } from './mp3.ts';
+import { singleflight } from './singleflight.ts';
 import { inputFormatArgs, run } from './whisper.ts';
 
 export type ClipFormat = 'mp3' | 'wav';
@@ -116,51 +117,57 @@ export async function cutClip(
   const key = crypto.createHash('sha1').update(`${original}|${startMs}|${endMs}|${format}${fadeKey}`).digest('hex').slice(0, 24);
   const out = path.join(CLIP_DIR, `${key}.${format}`);
   if (fs.existsSync(out)) return out;
+  // Identical requests that overlap share one cut: they would otherwise all write the same cache file.
+  return singleflight(out, async () => {
+    if (fs.existsSync(out)) return out;
 
-  const startS = startMs / 1000;
-  const lengthS = (endMs - startMs) / 1000;
-  const encode = ['-vn', '-ac', '2', '-ar', '44100', ...(format === 'wav' ? ['-c:a', 'pcm_s16le'] : ['-c:a', 'libmp3lame', '-q:a', '3'])];
-  const tmp = `${out}.part.${format}`;
-  const piece = `${out}.piece.mp3`;
-  try {
-    const source = await getSource(original);
+    const startS = startMs / 1000;
+    const lengthS = (endMs - startMs) / 1000;
+    const encode = ['-vn', '-ac', '2', '-ar', '44100', ...(format === 'wav' ? ['-c:a', 'pcm_s16le'] : ['-c:a', 'libmp3lame', '-q:a', '3'])];
+    // Unique temporary names, so two processes (a second server, a test run) never write the same file.
+    const unique = `${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+    const tmp = `${out}.${unique}.part.${format}`;
+    const piece = `${out}.${unique}.piece.mp3`;
+    try {
+      const source = await getSource(original);
 
-    if (source.cbr) {
-      // Constant bitrate: fetch just the bytes around the clip and let ffmpeg trim to the exact start.
-      const { offset, bytesPerSec } = source.cbr;
-      const from = Math.max(offset, Math.floor(offset + (startS - LEAD_S) * bytesPerSec));
-      const to = Math.ceil(offset + (startS + lengthS + TAIL_S) * bytesPerSec);
-      try {
-        const { bytes } = await fetchRange(source.url, from, to);
-        fs.writeFileSync(piece, bytes);
-        // Seconds from the start of the fetched piece to the requested clip start.
-        const skip = Math.max(0, startS - (from - offset) / bytesPerSec);
-        // With a fade the trim has to happen inside the filter chain: ffmpeg applies output-side
-        // `-ss` after the filters, which would put the fade before the cut.
-        const trim = hasFade(fade)
-          ? ['-af', [`atrim=start=${skip.toFixed(3)}:duration=${lengthS.toFixed(3)}`, 'asetpts=PTS-STARTPTS', ...fadeFilters(fade, endMs - startMs)].join(',')]
-          : ['-ss', skip.toFixed(3), '-t', lengthS.toFixed(3)];
-        await run('ffmpeg', ['-v', 'error', '-y', '-f', 'mp3', '-i', piece, ...trim, ...encode, tmp]);
-        fs.renameSync(tmp, out);
-        return out;
-      } catch {
-        // A stale or refused link, a partial answer: forget what we knew and cut the slow way.
-        sources.delete(original);
+      if (source.cbr) {
+        // Constant bitrate: fetch just the bytes around the clip and let ffmpeg trim to the exact start.
+        const { offset, bytesPerSec } = source.cbr;
+        const from = Math.max(offset, Math.floor(offset + (startS - LEAD_S) * bytesPerSec));
+        const to = Math.ceil(offset + (startS + lengthS + TAIL_S) * bytesPerSec);
+        try {
+          const { bytes } = await fetchRange(source.url, from, to);
+          fs.writeFileSync(piece, bytes);
+          // Seconds from the start of the fetched piece to the requested clip start.
+          const skip = Math.max(0, startS - (from - offset) / bytesPerSec);
+          // With a fade the trim has to happen inside the filter chain: ffmpeg applies output-side
+          // `-ss` after the filters, which would put the fade before the cut.
+          const trim = hasFade(fade)
+            ? ['-af', [`atrim=start=${skip.toFixed(3)}:duration=${lengthS.toFixed(3)}`, 'asetpts=PTS-STARTPTS', ...fadeFilters(fade, endMs - startMs)].join(',')]
+            : ['-ss', skip.toFixed(3), '-t', lengthS.toFixed(3)];
+          await run('ffmpeg', ['-v', 'error', '-y', '-f', 'mp3', '-i', piece, ...trim, ...encode, tmp]);
+          fs.renameSync(tmp, out);
+          return out;
+        } catch {
+          // A stale or refused link, a partial answer: forget what we knew and cut the slow way.
+          sources.delete(original);
+        }
       }
-    }
 
-    await run('ffmpeg', [
-      '-v', 'error', '-y',
-      '-ss', startS.toFixed(3), ...inputFormatArgs(source.url), '-i', source.url, '-t', lengthS.toFixed(3),
-      ...(hasFade(fade) ? ['-af', fadeFilters(fade, endMs - startMs).join(',')] : []),
-      ...encode, tmp,
-    ]);
-    fs.renameSync(tmp, out);
-  } finally {
-    fs.rmSync(tmp, { force: true });
-    fs.rmSync(piece, { force: true });
-  }
-  return out;
+      await run('ffmpeg', [
+        '-v', 'error', '-y',
+        '-ss', startS.toFixed(3), ...inputFormatArgs(source.url), '-i', source.url, '-t', lengthS.toFixed(3),
+        ...(hasFade(fade) ? ['-af', fadeFilters(fade, endMs - startMs).join(',')] : []),
+        ...encode, tmp,
+      ]);
+      fs.renameSync(tmp, out);
+    } finally {
+      fs.rmSync(tmp, { force: true });
+      fs.rmSync(piece, { force: true });
+    }
+    return out;
+  });
 }
 
 export class ClipError extends Error {

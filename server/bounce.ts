@@ -5,6 +5,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { ClipError, cutClip, resolveRef, type ClipFormat } from './clip.ts';
 import { CLIP_DIR } from './config.ts';
 import { clampFade, type Fade } from './fade.ts';
+import { singleflight } from './singleflight.ts';
 import { run } from './whisper.ts';
 
 export interface BounceClip {
@@ -63,32 +64,48 @@ export async function bounce(conn: DatabaseSync, spec: BounceSpec): Promise<stri
   const key = crypto.createHash('sha1').update(JSON.stringify(spec)).digest('hex').slice(0, 24);
   const out = path.join(CLIP_DIR, `story-${key}.${spec.format}`);
   if (fs.existsSync(out)) return out;
+  // Identical requests that overlap share one job.
+  return singleflight(out, async () => {
+    if (fs.existsSync(out)) return out;
 
-  const pieces: string[] = [];
-  for (const c of spec.clips) pieces.push(await cutClip(conn, c.ref, c.startMs, c.endMs, 'wav', c.fade));
+    const pieces: string[] = [];
+    for (const c of spec.clips) pieces.push(await cutClip(conn, c.ref, c.startMs, c.endMs, 'wav', c.fade));
 
-  let gapFile: string | null = null;
-  if (spec.gapMs > 0 && pieces.length > 1) {
-    gapFile = path.join(CLIP_DIR, `gap-${spec.gapMs}.wav`);
-    if (!fs.existsSync(gapFile)) {
-      await run('ffmpeg', [
-        '-v', 'error', '-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
-        '-t', (spec.gapMs / 1000).toFixed(3), '-c:a', 'pcm_s16le', gapFile,
-      ]);
+    let gapFile: string | null = null;
+    if (spec.gapMs > 0 && pieces.length > 1) {
+      gapFile = path.join(CLIP_DIR, `gap-${spec.gapMs}.wav`);
+      const target = gapFile;
+      if (!fs.existsSync(target)) {
+        // Written to a temporary name and renamed, so no one ever reads a half-written silence file.
+        await singleflight(target, async () => {
+          const part = `${target}.${process.pid}-${crypto.randomBytes(4).toString('hex')}.part.wav`;
+          try {
+            await run('ffmpeg', [
+              '-v', 'error', '-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
+              '-t', (spec.gapMs / 1000).toFixed(3), '-c:a', 'pcm_s16le', part,
+            ]);
+            fs.renameSync(part, target);
+          } finally {
+            fs.rmSync(part, { force: true });
+          }
+        });
+      }
     }
-  }
 
-  const list = `${out}.txt`;
-  const tmp = `${out}.part.${spec.format}`;
-  try {
-    const lines = pieces.flatMap((file, i) => (i > 0 && gapFile ? [gapFile, file] : [file])).map((f) => `file '${f.replaceAll("'", "'\\''")}'`);
-    fs.writeFileSync(list, `${lines.join('\n')}\n`);
-    const encode = spec.format === 'wav' ? ['-c:a', 'pcm_s16le'] : ['-c:a', 'libmp3lame', '-q:a', '2'];
-    await run('ffmpeg', ['-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', list, ...encode, tmp]);
-    fs.renameSync(tmp, out);
-  } finally {
-    fs.rmSync(list, { force: true });
-    fs.rmSync(tmp, { force: true });
-  }
-  return out;
+    // Unique temporary names, so overlapping requests (or two server processes) never write the same file.
+    const unique = `${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+    const list = `${out}.${unique}.txt`;
+    const tmp = `${out}.${unique}.part.${spec.format}`;
+    try {
+      const lines = pieces.flatMap((file, i) => (i > 0 && gapFile ? [gapFile, file] : [file])).map((f) => `file '${f.replaceAll("'", "'\\''")}'`);
+      fs.writeFileSync(list, `${lines.join('\n')}\n`);
+      const encode = spec.format === 'wav' ? ['-c:a', 'pcm_s16le'] : ['-c:a', 'libmp3lame', '-q:a', '2'];
+      await run('ffmpeg', ['-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', list, ...encode, tmp]);
+      fs.renameSync(tmp, out);
+    } finally {
+      fs.rmSync(list, { force: true });
+      fs.rmSync(tmp, { force: true });
+    }
+    return out;
+  });
 }

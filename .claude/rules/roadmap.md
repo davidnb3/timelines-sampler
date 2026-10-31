@@ -83,6 +83,8 @@ Last updated: 2026-11-03.
 
 ### Sampler features
 
+- **Cache poisoning bug (fixed 2026-10-31):** concurrent identical clip requests raced on one temporary file and could leave a truncated mp3 in `data/clips/`, which the story then failed to decode. Reproduced with six simultaneous requests; fixed with `singleflight` plus unique temp names, and checked with 96 concurrent responses across two server processes (0 bad). If a clip ever fails to decode, scan the cache (`ffprobe` each file) and delete the broken ones: the cache is disposable.
+
 - Trimming loads a window (clip ±8 s) as one decoded buffer and plays spans of it with Web Audio (`Voice`), so there is no `<audio>` element any more. Clip edges are applied on release: the region changes live while dragging and the card's `Hit` (range, text, segment indexes) is replaced on pointer-up.
 - Selection text uses whisper segments, which are sentence-sized (some 17 s long): a selection inside one long segment returns that whole sentence. There is no word-level timing.
 - The story joins clips client-side for playback and server-side (`/api/bounce`, ffmpeg concat of cached WAV cuts plus a generated silence file) for downloads; both use `STORY_GAP_MS`. TV clips cannot be cut and are left out of stories (the panel says how many).
