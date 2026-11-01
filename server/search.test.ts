@@ -72,6 +72,18 @@ describe('library search', () => {
     assert.equal(hit.ref.startsWith('ep:'), true);
   });
 
+  it('does not widen a hit whose segment is already a whole clip', () => {
+    const conn = openDb(':memory:');
+    const long = (startMs: number, text: string) => ({ startMs, endMs: startMs + 15_000, text });
+    saveEpisode(
+      conn,
+      { source: 'peoples-speech', extId: 'ps:x', show: "People's Speech", title: 'Forum', date: null, audioUrl: 'file:///x.flac', pageUrl: null, durationMs: null, topics: [] },
+      [long(0, 'the first clip of the forum'), long(15_000, 'the farm subsidy is discussed here'), long(30_000, 'the third clip')],
+    );
+    const hit = searchLibrary(conn, 'subsidy', [], 5).hits[0]!;
+    assert.deepEqual([hit.startMs, hit.endMs, hit.text], [15_000, 30_000, 'the farm subsidy is discussed here']);
+  });
+
   it('stems words, so "planet" finds "planets"', () => {
     const conn = seed();
     const hits = searchLibrary(conn, 'planet', ['sci-fi'], 10).hits;

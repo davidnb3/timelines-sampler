@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { DatabaseSync } from 'node:sqlite';
 import { CLIP_DIR, USER_AGENT } from './config.ts';
 import { getEpisode } from './db.ts';
@@ -86,7 +87,7 @@ function getSource(original: string): Promise<Source> {
 /** Resolves an episode's address and layout in the background so its first clip is quick. */
 export function warmSource(conn: DatabaseSync, ref: string): void {
   const url = resolveRef(conn, ref);
-  if (url) void getSource(url);
+  if (url && !url.startsWith('file:')) void getSource(url);
 }
 
 /** Cuts [startMs, endMs] from the source into a cached audio file and returns its path. */
@@ -129,6 +130,20 @@ export async function cutClip(
     const tmp = `${out}.${unique}.part.${format}`;
     const piece = `${out}.${unique}.piece.mp3`;
     try {
+      // A recording stored on this machine (People's Speech): ffmpeg cuts straight from the file. FLAC
+      // seeks exactly, so none of the byte-range machinery below is needed.
+      if (original.startsWith('file:')) {
+        const file = fileURLToPath(original);
+        if (!fs.existsSync(file)) throw new ClipError(404, 'The audio file for this recording is missing');
+        await run('ffmpeg', [
+          '-v', 'error', '-y', '-ss', startS.toFixed(3), '-i', file, '-t', lengthS.toFixed(3),
+          ...(hasFade(fade) ? ['-af', fadeFilters(fade, endMs - startMs).join(',')] : []),
+          ...encode, tmp,
+        ]);
+        fs.renameSync(tmp, out);
+        return out;
+      }
+
       const source = await getSource(original);
 
       if (source.cbr) {

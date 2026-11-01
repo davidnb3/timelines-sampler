@@ -62,10 +62,16 @@ export function searchLibrary(
   };
 }
 
+/** A matching segment at least this long is already a whole clip, so it is not widened with its neighbours. */
+export const LONG_SEGMENT_MS = 8000;
+
 function hitFromRow(conn: DatabaseSync, r: LibraryRow, context: number): Hit | null {
   const ep = getEpisode(conn, r.episodeId);
   if (!ep) return null;
-  const win = getSegmentWindow(conn, r.episodeId, r.idx - context, r.idx + context);
+  // Whisper's segments are a few seconds, so a hit gets its neighbours for context. People's Speech
+  // clips are about 15 s each; three of them would make a 45 s hit.
+  const around = r.endMs - r.startMs >= LONG_SEGMENT_MS ? 0 : context;
+  const win = getSegmentWindow(conn, r.episodeId, r.idx - around, r.idx + around);
   if (!win.length) return null;
   return {
     id: `lib:${r.segId}`,
