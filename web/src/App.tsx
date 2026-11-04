@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent } from 'react';
 import {
   clipUrl, expandHit, fetchHealth, fetchTopics, search,
   type Health, type Hit, type SourceId, type TopicCount,
@@ -383,6 +383,11 @@ export function App() {
     [saved],
   );
 
+  /** After a mouse click on a filter chip, Return should search again, not press the chip a second time. A keyboard click (detail 0) keeps focus so Tab navigation through the chips still works. */
+  const backToPrompt = (e: MouseEvent) => {
+    if (e.detail > 0) inputRef.current?.focus();
+  };
+
   const toggleTopic = (topic: string) => {
     setTopics((cur) => {
       const next = cur.includes(topic) ? cur.filter((t) => t !== topic) : [...cur, topic];
@@ -560,7 +565,7 @@ export function App() {
                 type="button"
                 className={`chip${topics.includes(t.topic) ? ' is-on' : ''}`}
                 aria-pressed={topics.includes(t.topic)}
-                onClick={() => toggleTopic(t.topic)}
+                onClick={(e) => { toggleTopic(t.topic); backToPrompt(e); }}
               >
                 {t.topic} <span className="chip-count">{t.episodes}</span>
               </button>
@@ -574,7 +579,7 @@ export function App() {
                 type="button"
                 className={`chip${sources[s] ? ' is-on' : ''}`}
                 aria-pressed={sources[s]}
-                onClick={() => toggleSource(s)}
+                onClick={(e) => { toggleSource(s); backToPrompt(e); }}
                 title={s === 'tv' ? 'Live search of US TV closed captions (GDELT). Topic filters do not apply.' : 'Your local index of transcribed recordings'}
               >
                 {SOURCE_LABEL[s]}

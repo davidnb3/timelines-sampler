@@ -48,7 +48,34 @@ export function clipFromGdelt(c: GdeltClip): Hit {
   };
 }
 
-export async function searchTv(q: string, limit: number): Promise<SearchResponse> {
+/** Why a request failed, in words a status line can show: the network error code when there is one. */
+function describeFailure(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const cause = err.cause as { code?: string; message?: string } | undefined;
+  if (err.name === 'TimeoutError') return 'no answer within 60 s';
+  return cause?.code ?? cause?.message ?? err.message;
+}
+
+/** One GDELT request; throws when the service could not be reached or answered with something other than clips or "no results". */
+async function requestClips(url: URL, fetchImpl: typeof fetch): Promise<GdeltClip[]> {
+  // GDELT answers slowly (10 s and up is normal) and returns plain text for bad queries.
+  const res = await fetchImpl(url, { headers: { 'User-Agent': USER_AGENT }, signal: AbortSignal.timeout(60_000) });
+  const body = await res.text();
+  try {
+    return (JSON.parse(body) as { clips?: GdeltClip[] }).clips ?? [];
+  } catch {
+    if (!res.ok || !/no (results|matching)/i.test(body)) throw new Error(`GDELT: ${body.slice(0, 160) || `HTTP ${res.status}`}`);
+    return [];
+  }
+}
+
+export interface TvDeps {
+  fetch?: typeof fetch;
+  /** Pause before the single retry, in milliseconds. */
+  retryAfterMs?: number;
+}
+
+export async function searchTv(q: string, limit: number, deps: TvDeps = {}): Promise<SearchResponse> {
   const t0 = performance.now();
   const url = new URL(ENDPOINT);
   url.search = new URLSearchParams({
@@ -58,14 +85,18 @@ export async function searchTv(q: string, limit: number): Promise<SearchResponse
     maxrecords: String(Math.min(limit, 50)),
   }).toString();
 
-  // GDELT answers slowly (10 s and up is normal) and returns plain text for bad queries.
-  const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT }, signal: AbortSignal.timeout(90_000) });
-  const body = await res.text();
-  let clips: GdeltClip[] = [];
+  // GDELT drops connections and times out now and then, so one failed request is tried again once.
+  const fetchImpl = deps.fetch ?? fetch;
+  let clips: GdeltClip[];
   try {
-    clips = (JSON.parse(body) as { clips?: GdeltClip[] }).clips ?? [];
+    clips = await requestClips(url, fetchImpl);
   } catch {
-    if (!res.ok || !/no (results|matching)/i.test(body)) throw new Error(`GDELT: ${body.slice(0, 160)}`);
+    await new Promise((r) => setTimeout(r, deps.retryAfterMs ?? 2000));
+    try {
+      clips = await requestClips(url, fetchImpl);
+    } catch (err) {
+      throw new Error(`TV captions (GDELT) did not answer twice: ${describeFailure(err)}. It is often slow or busy; try again in a moment.`);
+    }
   }
   return {
     source: 'tv',

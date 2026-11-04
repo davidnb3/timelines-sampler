@@ -32,7 +32,7 @@ Last updated: 2026-11-04.
 - UI: idle and active phases, result cards with inline waveform, star or download flies a clip onto the timeline, pan, zoom, fit, popover per pinned clip, keyboard shortcuts, light and dark themes, phone-width layout.
 - **Sampler features (2026-10-31):** trim on the waveform like an Ableton clip (edges drag outward too, middle slides, snap to sentence boundaries, Alt for free placement; the quote follows the selection), loop, a drag handle that drops the clip as a WAV into Finder or a DAW (Chromium `DownloadURL`), and **stories**: "Play story" on the timeline builds one waveform from the pinned library clips in date order (growing out from the middle while loading), plays it with the camera following, and downloads it as WAV or MP3 (`/api/bounce`).
 - **People's Speech, stage 1 (2026-10-31):** `npm run ingest -- peoples-speech` indexes the 336-clip `microset` (one 79 minute recording: a 2016 forum meeting) into the library, searchable, playable, trimmable and pinnable like everything else. See `CLAUDE.md` for how it is stored.
-- **People's Speech films (2026-10-31):** `npm run ingest -- peoples-speech-films` imports the 2,680 film items (73.7 hours: Prelinger shorts, public-domain features, sci-fi, horror, noir, comedy) of the `clean` set, picked by Internet Archive collection. Shows up as "Prelinger Archives" / "Public-domain film" with the film's title and year and the topics `film`, `prelinger`, `sci-fi`, `horror`, `film-noir`, `comedy`. Whole-shard downloads with the next two prefetched, about 1 minute per shard, 99 shards. Resumable (`data/peoples-speech/films-done.json`). Log: `data/logs/films-import.log`.
+- **People's Speech films (2026-10-31):** `npm run ingest -- peoples-speech-films` imports the 2,680 film items (73.7 hours: Prelinger shorts, public-domain features, sci-fi, horror, noir, comedy) of the `clean` set, picked by Internet Archive collection. Shows up as "Prelinger Archives" / "Public-domain film" with the film's title and year and the topics `film`, `prelinger`, `sci-fi`, `horror`, `film-noir`, `comedy`. Whole-shard downloads with the next two prefetched, about 1 minute per shard, 99 shards. Resumable (`data/peoples-speech/films-done.json`). Log: `data/logs/films-import.log`. **Finished 2026-11-01:** 2,821 recordings (2,680 films, 73.7 hours, 4.5 GB of FLAC) in the library, no warnings; the library is now 2,833 recordings and 30,068 segments. Running the command again does nothing (all shards are in `films-done.json`).
 - **Sampler polish (2026-11-03):** a 5 ms declick fade on every cut (export and playback); same-day clips fan out on the timeline; trim and fade inside the pinned-clip popover (the clip keeps its key); story controls: reorder (drag the chips), leave clips out, set the gap, saved per timeline.
 - **Timeline collections (2026-11-02):** timelines live in SQLite (`timelines`, `timeline_clips`), with a switcher in the dock (switch, new, rename, duplicate, delete) and a one-time import of the clips a browser had saved locally. The story and its downloads follow the open timeline and are named after it.
 - **Fades (2026-11-01):** drag the square at the top of a trim edge to fade in or out (Ableton-style: diagonal gain line, tapered waveform, shaded corner). They are heard while editing, saved with the clip, applied to downloads, drag-out files and stories. The shrink button on the timeline now also closes the story, which fades out.
@@ -65,11 +65,19 @@ Last updated: 2026-11-04.
 - **GDELT International market:** BBC News, Al Jazeera, DW, RT (2017 to 2024-10-10) and NHK (2014 to 2017). Small change in `server/sources/gdelt.ts` (the query currently hard-codes `market:"National"`). All news, stream-only. GDELT TV data ends 2024-10-10.
 - Transcribe more than the first 10 minutes of recordings; ingest more sci-fi.
 
+### 2a. Bulk imports of Internet Archive collections (the owner will not run these himself now; they become user-run, with pause)
+
+Candidates measured 2026-11-04 (counts from the Archive, hours are rough samples): `classic_tv_commercials` 8,458 items of about 1 to 2 minutes (roughly 200 hours); public-domain films `moviesandfilms` 110,909 and `feature_films` 28,584 items (2,680 are already in through People's Speech, but only fragments); `classic_tv` 11,452 items of about 30 minutes (thousands of hours). None has transcripts, so each needs Whisper; at 2.3 times real time on a Mac CPU that is days, which is why GPU transcription comes first. In the desktop app these are offered as imports that run on the user's computer and can be paused and resumed: see `.claude/rules/desktop-app.md`. GDELT International (DW, RT, BBC, Al Jazeera, 2010 to 2024-07) was tested and works, but it is stream-only news.
+
+### 2b. Desktop app for other people (plan agreed 2026-11-04, not started)
+
+Full plan in `.claude/rules/desktop-app.md`: users add their own files, podcasts and Internet Archive items through buttons; the People's Speech films come from an "Add old films" importer that runs on their computer, not from audio we host; Electron is the recommended wrapper; downloading from YouTube and streaming services is a later feature after a legal check. First step that is also useful for the web app: a background job runner with progress.
+
 ### 3. Infrastructure and housekeeping
 
-- **GDELT reliability:** the API often fails with "fetch failed" or takes 10 to 20 s. Add one retry and a clearer message.
+- **GDELT reliability (done 2026-11-04):** one retry and a clear message (`searchTv`). It still takes 10 to 25 s per search. The TV source is news only and stream-only (cannot be trimmed or saved), so the owner finds it the least interesting; it may become off by default.
 - **Clip cache growth:** `data/clips/` has no eviction.
-- Tauri or Electron wrapper.
+- Tauri or Electron wrapper: see `.claude/rules/desktop-app.md` (Electron recommended).
 - Speaker labels (needs `pyannote`, a Python 3.12 environment via `uv`). Optional.
 
 ## Explicitly not needed
