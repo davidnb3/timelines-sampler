@@ -6,6 +6,7 @@ import {
 import { flyDot } from './fly.ts';
 import { Moon, Plus, Sun } from './icons.tsx';
 import { PinCard } from './PinCard.tsx';
+import { Wordmark } from './Wordmark.tsx';
 import { SourcesPanel } from './sources/SourcesPanel.tsx';
 import { desktop, jobActive, useEvents } from './sources/sourcesApi.ts';
 import { ResultCard } from './ResultCard.tsx';
@@ -87,9 +88,9 @@ function PromptHint({ visible }: { visible: boolean }) {
 const LOGO_BARS = [3, 7, 11, 8, 16, 8, 11, 7, 3];
 const LOGO_CORE = Math.floor(LOGO_BARS.length / 2);
 
-function Logo({ playing }: { playing: boolean }) {
+function Logo({ playing, intro }: { playing: boolean; intro: boolean }) {
   return (
-    <svg className={`logo${playing ? ' is-playing' : ''}`} width="28" height="18" viewBox="0 0 28 18" aria-hidden>
+    <svg className={`logo${playing ? ' is-playing' : ''}${intro ? ' is-intro' : ''}`} width="28" height="18" viewBox="0 0 28 18" aria-hidden>
       {LOGO_BARS.map((h, i) => {
         const away = Math.abs(i - LOGO_CORE);
         return (
@@ -135,6 +136,9 @@ export function App() {
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [droppedPaths, setDroppedPaths] = useState<string[]>([]);
   const events = useEvents();
+  // The name rolls in once when the page opens, unless the person asked for less motion.
+  const [intro, setIntro] = useState(() => !reducedMotion());
+  const endIntro = useCallback(() => setIntro(false), []);
   const [viewportHeight, setViewportHeight] = useState(() => window.innerHeight);
   useEffect(() => {
     const onResize = () => setViewportHeight(window.innerHeight);
@@ -542,7 +546,7 @@ export function App() {
       <SourcesPanel open={sourcesOpen} onClose={() => { setSourcesOpen(false); setDroppedPaths([]); }} events={events} droppedPaths={droppedPaths} />
 
       <header className="bar">
-        <span className="brand"><Logo playing={player.playing || story.playing} /><span className="brand-name">Timelines</span></span>
+        <span className="brand"><Logo playing={player.playing || story.playing} intro={intro} /><Wordmark intro={intro} onDone={endIntro} /></span>
         <span className="bar-right">
           <span className={`status${anyLoading ? ' is-busy' : ''}${saved.error ? ' is-error' : ''}`} role="status" aria-live="polite">
             <i aria-hidden />{statusText}

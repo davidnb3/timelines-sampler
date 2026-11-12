@@ -20,7 +20,7 @@ Last updated: 2026-11-09.
 - **No own-library upload for now.** Maybe much later. Sources are open ones: Internet Archive, Podcast Index feeds, GDELT TV captions, later People's Speech.
 - **Segment-level results are fine.** No word-level cuts.
 - **Favourite topic is sci-fi, but any topic must work.** The topic filter exists; broaden by ingesting.
-- **UI is finished and approved:** a dark room, a timeline of saved clips pinned by recording date, a prompt that moves up when you search, light theme as "lights on". Name: Timelines (renamed from Back then on 2026-11-12; before that telly), written in Instrument Serif italic. Logo: the symmetric nine-bar pulse with an orange centre bar. Do not redesign unless asked.
+- **UI is finished and approved:** a dark room, a timeline of saved clips pinned by recording date, a prompt that moves up when you search, light theme as "lights on". Name: Timelines (renamed from Back then on 2026-11-12; before that telly), written in Space Mono bold with a one-time timecode roll-in on page load (the owner chose this direction on 2026-11-12 from five animated variations). Logo: the symmetric nine-bar pulse with an orange centre bar. Do not redesign unless asked.
 - **No whole-episode downloads for clipping.** It does not scale (tens or hundreds of episodes). Clips are cut from byte ranges (see below).
 - **Web app first, then the Electron desktop app (built 2026-11-09).** Electron, not Tauri (reasons in `desktop-app.md`).
 - **Timelines are saved on the server** (SQLite) as named collections; one timeline is one story. The browser only remembers which one is open.

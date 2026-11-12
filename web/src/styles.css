@@ -175,16 +175,61 @@ kbd {
   letter-spacing: 0.04em;
 }
 
-/* The wordmark: Instrument Serif italic (bundled, SIL Open Font License), the same family of letter as the quoted dialogue.
-   Lowercase letters sit low in their line box; the padding lifts it to sit level with the logo. */
+/* The wordmark: Space Mono bold (bundled, SIL Open Font License). Monospaced, so each of the nine letters has the
+   width of one logo bar's slot and the counter columns of the intro line up with the plain word that replaces them. */
 .brand-name {
-  font-family: 'Instrument Serif', var(--font-serif);
-  font-style: italic;
-  font-weight: 400;
-  font-size: 25px;
-  letter-spacing: 0.005em;
-  line-height: 1;
-  padding-bottom: 3px;
+  display: inline-flex;
+  font-family: 'Space Mono', var(--font-mono);
+  font-weight: 700;
+  font-size: 20px;
+  line-height: 1.2;
+  letter-spacing: 0;
+  padding-bottom: 2px;
+}
+
+.brand-l {
+  color: rgb(var(--accent));
+}
+
+/* Intro, once per page load: nine zeros, then every letter rolls up from a counting column, one after another. */
+.roll-col {
+  display: inline-block;
+  width: 1ch;
+  height: 1.2em;
+  overflow: hidden;
+  text-align: center;
+}
+
+.roll-strip {
+  display: flex;
+  flex-direction: column;
+  animation: roll 1.5s cubic-bezier(0.3, 0.7, 0.2, 1) both;
+  animation-delay: calc(500ms + var(--i) * 90ms);
+}
+
+.roll-d {
+  height: 1.2em;
+  color: var(--text-3);
+}
+
+.roll-f {
+  color: var(--text);
+}
+
+.roll-f.brand-l {
+  color: rgb(var(--accent));
+}
+
+/* --n is how many rows the column has; the strip ends with its last row (the letter) showing. */
+@keyframes roll {
+  from { transform: translateY(0); }
+  to { transform: translateY(calc((var(--n) - 1) / var(--n) * -100%)); }
+}
+
+/* The logo's bars ripple once, outward from the orange bar, as the letters roll. They end where they began. */
+.logo.is-intro .logo-bar {
+  animation: eq 0.7s ease-in-out 2 alternate-reverse;
+  animation-delay: calc(500ms + var(--d));
 }
 
 .logo-bar {

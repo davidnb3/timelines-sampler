@@ -1,6 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import '@fontsource/instrument-serif/latin-400-italic.css';
+import '@fontsource/space-mono/latin-700.css';
 import { App } from './App.tsx';
 import './styles.css';
 import './timeline/timeline.css';
