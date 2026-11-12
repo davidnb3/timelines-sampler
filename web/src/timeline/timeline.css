@@ -25,10 +25,11 @@
   cursor: grabbing;
 }
 
-/* Idle: the timeline hangs in the middle of the room. Active: it docks to the bottom. */
+/* Idle: the timeline starts in the middle of the room and reaches the bottom edge (the line inside keeps its place,
+   see idleLineRatio in model.ts). Active: it docks to the bottom as a shorter panel. */
 .room {
   --tl-top: max(46dvh, 340px);
-  --tl-h: 340px;
+  --tl-h: max(340px, calc(100dvh - var(--tl-top)));
 }
 
 .room[data-phase='active'] {

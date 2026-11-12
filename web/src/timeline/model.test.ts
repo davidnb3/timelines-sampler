@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  idleLineRatio,
   LEVELS, YEAR_MS, spreadPositions, alignedTimes, fitView, formatFocus, levelFor, parseDate, pinKey, pinTime, planView, tickLabel, utc,
 } from './model.ts';
 
@@ -158,5 +159,24 @@ describe('spreadPositions', () => {
   it('handles none and one', () => {
     assert.deepEqual(spreadPositions([], 20), { xs: [], crowded: [] });
     assert.deepEqual(spreadPositions([50], 20), { xs: [50], crowded: [false] });
+  });
+});
+
+describe('idleLineRatio', () => {
+  it('keeps the usual 64% when the window is short', () => {
+    assert.ok(Math.abs(idleLineRatio(500) - 0.64) < 1e-9);
+    assert.ok(Math.abs(idleLineRatio(620) - 0.64) < 1e-9);
+  });
+
+  it('keeps the line the same distance from the top of the panel when the window is taller', () => {
+    for (const vh of [800, 1000, 1400]) {
+      const top = Math.max(0.46 * vh, 340);
+      const panel = vh - top;
+      assert.ok(Math.abs(idleLineRatio(vh) * panel - 0.64 * 340) < 0.001, `window ${vh}`);
+    }
+  });
+
+  it('never goes above 64%', () => {
+    for (let vh = 300; vh <= 2000; vh += 50) assert.ok(idleLineRatio(vh) <= 0.64);
   });
 });

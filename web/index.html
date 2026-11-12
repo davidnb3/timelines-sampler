@@ -3,21 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Back then</title>
+    <title>Timelines</title>
     <meta name="color-scheme" content="dark light" />
     <meta name="theme-color" content="#050506" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%230b0b0d%22/%3E%3Crect x=%224.10%22 y=%2214.0%22 width=%221.9%22 height=%224%22 rx=%220.95%22 fill=%22%23eeede8%22 fill-opacity=%220.40%22/%3E%3Crect x=%226.85%22 y=%2211.5%22 width=%221.9%22 height=%229%22 rx=%220.95%22 fill=%22%23eeede8%22 fill-opacity=%220.55%22/%3E%3Crect x=%229.60%22 y=%229.0%22 width=%221.9%22 height=%2214%22 rx=%220.95%22 fill=%22%23eeede8%22 fill-opacity=%220.70%22/%3E%3Crect x=%2212.35%22 y=%2211.0%22 width=%221.9%22 height=%2210%22 rx=%220.95%22 fill=%22%23eeede8%22 fill-opacity=%220.85%22/%3E%3Crect x=%2215.10%22 y=%226.0%22 width=%221.9%22 height=%2220%22 rx=%220.95%22 fill=%22%23ff6a3d%22/%3E%3Crect x=%2217.85%22 y=%2211.0%22 width=%221.9%22 height=%2210%22 rx=%220.95%22 fill=%22%23eeede8%22 fill-opacity=%220.85%22/%3E%3Crect x=%2220.60%22 y=%229.0%22 width=%221.9%22 height=%2214%22 rx=%220.95%22 fill=%22%23eeede8%22 fill-opacity=%220.70%22/%3E%3Crect x=%2223.35%22 y=%2211.5%22 width=%221.9%22 height=%229%22 rx=%220.95%22 fill=%22%23eeede8%22 fill-opacity=%220.55%22/%3E%3Crect x=%2226.10%22 y=%2214.0%22 width=%221.9%22 height=%224%22 rx=%220.95%22 fill=%22%23eeede8%22 fill-opacity=%220.40%22/%3E%3C/svg%3E" />
     <script>
       // Apply the saved theme before first paint to avoid a flash.
       try {
-        // The app used to be called telly: carry its saved state over to the new key names once.
-        ['theme', 'timeline', 'sources', 'topics', 'history'].forEach(function (k) {
-          var old = localStorage.getItem('telly.' + k);
-          if (old === null) return;
-          if (localStorage.getItem('back-then.' + k) === null) localStorage.setItem('back-then.' + k, old);
-          localStorage.removeItem('telly.' + k);
+        // The app used to be called telly, then Back then: carry its saved state over to the new key names once.
+        ['theme', 'timeline', 'sources', 'topics', 'history', 'active-timeline'].forEach(function (k) {
+          ['telly.', 'back-then.'].forEach(function (prefix) {
+            var old = localStorage.getItem(prefix + k);
+            if (old === null) return;
+            if (localStorage.getItem('timelines.' + k) === null) localStorage.setItem('timelines.' + k, old);
+            localStorage.removeItem(prefix + k);
+          });
         });
-        var t = localStorage.getItem('back-then.theme');
+        var t = localStorage.getItem('timelines.theme');
         document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark';
       } catch (e) {}
     </script>

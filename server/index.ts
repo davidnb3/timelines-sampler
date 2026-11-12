@@ -12,9 +12,22 @@ import {
   addClip, createTimeline, deleteTimeline, duplicateTimeline, getTimeline, listTimelines, removeClip, renameTimeline,
   TimelineError, setStory, updateClip,
 } from './timelines.ts';
-import { modelAvailable } from './whisper.ts';
+import { checkRequest } from './guard.ts';
+import { buildProcessors, planJob } from './importers/index.ts';
+import { expandPaths } from './importers/files.ts';
+import { filmsInfo } from './importers/films.ts';
+import { JobRunner } from './jobs.ts';
+import { modelAvailable } from './models.ts';
+import { podcastIndexKeys, readSettings, updateSettings } from './settings.ts';
+import { onSetupChange, setupStatus, startInstall, type ToolId } from './setup.ts';
+import { countItems } from './sources/internetArchive.ts';
+import { searchFeeds } from './sources/podcastIndex.ts';
 
 const conn = openDb();
+const runner = new JobRunner(conn, buildProcessors(conn));
+runner.start();
+/** Set by the desktop app: see guard.ts. */
+const GUARD = { token: process.env.TIMELINES_TOKEN || null, port: PORT };
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -117,6 +130,140 @@ async function handleTimelines(req: http.IncomingMessage, res: http.ServerRespon
   throw notAllowed();
 }
 
+const badRequest = (err: unknown) => new TimelineError(400, err instanceof Error ? err.message : String(err));
+
+/** The jobs and the setup state, pushed to every open window as server-sent events. */
+const eventClients = new Set<http.ServerResponse>();
+let eventTimer: NodeJS.Timeout | undefined;
+function pushEvents(): void {
+  if (eventTimer || !eventClients.size) return;
+  eventTimer = setTimeout(() => {
+    eventTimer = undefined;
+    const payload = `data: ${JSON.stringify({ jobs: runner.list(), setup: setupStatus() })}\n\n`;
+    for (const c of eventClients) c.write(payload);
+  }, 120);
+}
+runner.onChange(pushEvents);
+onSetupChange(pushEvents);
+
+function openEventStream(req: http.IncomingMessage, res: http.ServerResponse): void {
+  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
+  res.write(`data: ${JSON.stringify({ jobs: runner.list(), setup: setupStatus() })}\n\n`);
+  eventClients.add(res);
+  const beat = setInterval(() => res.write(': still here\n\n'), 25_000);
+  req.on('close', () => {
+    clearInterval(beat);
+    eventClients.delete(res);
+  });
+}
+
+/** Routes for adding sources: /api/jobs, /api/setup, /api/settings and /api/sources/*. */
+async function handleSources(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<boolean> {
+  const method = req.method ?? 'GET';
+  const p = url.pathname;
+  const body = async () => ((await readJson(req)) ?? {}) as Record<string, unknown>;
+  const reply = (status: number, payload: unknown): true => {
+    sendJson(res, status, payload);
+    return true;
+  };
+
+  if (p === '/api/events' && method === 'GET') {
+    openEventStream(req, res);
+    return true;
+  }
+  if (p === '/api/setup' && method === 'GET') return reply(200, setupStatus());
+  if (p === '/api/setup/install' && method === 'POST') {
+    const b = await body();
+    if (!['ffmpeg', 'whisper', 'model'].includes(String(b.id))) throw new TimelineError(400, 'Unknown tool');
+    try {
+      startInstall(b.id as ToolId, { model: b.model ? String(b.model) : undefined });
+    } catch (err) {
+      throw badRequest(err);
+    }
+    return reply(202, setupStatus());
+  }
+
+  if (p === '/api/settings') {
+    if (method === 'POST') {
+      const b = await body();
+      updateSettings({
+        ...('podcastIndexKey' in b ? { podcastIndexKey: String(b.podcastIndexKey).trim() } : {}),
+        ...('podcastIndexSecret' in b ? { podcastIndexSecret: String(b.podcastIndexSecret).trim() } : {}),
+      });
+      pushEvents();
+    }
+    // Secrets are never sent back: the page only learns whether they are set.
+    const s = readSettings();
+    return reply(200, { podcastIndexConfigured: podcastIndexKeys() !== null, whisperModel: s.whisperModel ?? null, transcribeSpeed: s.transcribeSpeed ?? null });
+  }
+
+  if (p === '/api/sources/films' && method === 'GET') return reply(200, filmsInfo());
+  if (p === '/api/sources/ia/preview' && method === 'POST') {
+    const b = await body();
+    const query = String(b.query ?? '').trim();
+    if (!query) throw new TimelineError(400, 'Enter a search first');
+    try {
+      return reply(200, { count: await countItems(query) });
+    } catch (err) {
+      throw badRequest(err);
+    }
+  }
+  if (p === '/api/sources/podcasts/search' && method === 'GET') {
+    const q = (url.searchParams.get('q') ?? '').trim();
+    if (!q) throw new TimelineError(400, 'Enter a podcast name');
+    try {
+      const feeds = await searchFeeds(q, 12);
+      return reply(200, feeds.map((f) => ({ id: f.id, title: f.title, author: f.author ?? null, description: (f.description ?? '').slice(0, 240), image: f.image ?? null, episodeCount: f.episodeCount ?? null, language: f.language })));
+    } catch (err) {
+      throw badRequest(err);
+    }
+  }
+  if (p === '/api/sources/files/preview' && method === 'POST') {
+    const b = await body();
+    const paths = Array.isArray(b.paths) ? b.paths.map(String) : [];
+    const { files, truncated } = expandPaths(paths);
+    return reply(200, { count: files.length, truncated, sample: files.slice(0, 5) });
+  }
+
+  if (p === '/api/jobs' && method === 'GET') return reply(200, runner.list());
+  if (p === '/api/jobs' && method === 'POST') {
+    const b = await body();
+    let planned;
+    try {
+      planned = await planJob(String(b.kind ?? ''), b);
+    } catch (err) {
+      throw badRequest(err);
+    }
+    const job = runner.create(String(b.kind), planned.title, planned.params, planned.items);
+    return reply(201, { ...job, note: planned.note ?? null });
+  }
+  const one = /^\/api\/jobs\/(\d+)(?:\/(pause|resume|cancel))?$/.exec(p);
+  if (one) {
+    const id = Number(one[1]);
+    try {
+      if (!one[2] && method === 'GET') {
+        const job = runner.get(id);
+        if (!job) throw new TimelineError(404, 'No such job');
+        return reply(200, job);
+      }
+      if (one[2] && method === 'POST') {
+        await body();
+        runner[one[2] as 'pause' | 'resume' | 'cancel'](id);
+        return reply(200, runner.get(id));
+      }
+      if (!one[2] && method === 'DELETE') {
+        runner.remove(id);
+        return reply(200, { ok: true });
+      }
+    } catch (err) {
+      if (err instanceof TimelineError) throw err;
+      throw badRequest(err);
+    }
+    throw new TimelineError(405, `${method} is not supported here`);
+  }
+  return false;
+}
+
 const intParam = (v: string | null, d: number, min: number, max: number) => {
   const n = v === null ? d : Number.parseInt(v, 10);
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : d;
@@ -124,6 +271,8 @@ const intParam = (v: string | null, d: number, min: number, max: number) => {
 
 async function handleApi(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
   const p = url.searchParams;
+
+  if (await handleSources(req, res, url)) return;
 
   const timelines = /^\/api\/timelines(?:\/(\d+))?(?:\/(duplicate|clips))?$/.exec(url.pathname);
   if (timelines) return handleTimelines(req, res, url, timelines[1], timelines[2]);
@@ -203,7 +352,7 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse, ur
 function serveWeb(req: http.IncomingMessage, res: http.ServerResponse, url: URL): void {
   if (!fs.existsSync(WEB_DIST)) {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    return void res.end('Back then API is running. Start the UI with `npm run dev`, or build it with `npm run build`.');
+    return void res.end('Timelines API is running. Start the UI with `npm run dev`, or build it with `npm run build`.');
   }
   const rel = path.normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '');
   let file = path.join(WEB_DIST, rel);
@@ -214,6 +363,11 @@ function serveWeb(req: http.IncomingMessage, res: http.ServerResponse, url: URL)
 }
 
 const server = http.createServer(async (req, res) => {
+  const guard = checkRequest(GUARD, { host: req.headers.host, cookie: req.headers.cookie, url: req.url ?? '/' });
+  if (!guard.allow) {
+    res.writeHead(guard.status ?? 403, { 'Content-Type': 'text/plain; charset=utf-8', ...(guard.redirect ? { Location: guard.redirect } : {}), ...(guard.setCookie ? { 'Set-Cookie': guard.setCookie } : {}) });
+    return void res.end(guard.message ?? '');
+  }
   const url = new URL(req.url ?? '/', 'http://localhost');
   try {
     if (url.pathname.startsWith('/api/')) await handleApi(req, res, url);
@@ -229,5 +383,5 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, '127.0.0.1', () => {
   const s = libraryStats(conn);
-  console.log(`Back then API on http://127.0.0.1:${PORT}  (${s.episodes} recordings, ${s.segments} segments indexed)`);
+  console.log(`Timelines API on http://127.0.0.1:${PORT}  (${s.episodes} recordings, ${s.segments} segments indexed)`);
 });

@@ -187,3 +187,19 @@ export function spreadPositions(xs: number[], min: number): { xs: number[]; crow
   }
   return { xs: out, crowded };
 }
+
+/**
+ * Idle layout: the timeline panel starts at 46% of the window height (at least 340 px down) and reaches the
+ * bottom edge, so there is no empty strip under it. The line stays where it always was, 218 px into the
+ * panel (64% of the 340 px panel that used to hang there), however tall the window is.
+ */
+export const IDLE_PANEL_MIN = 340;
+export const IDLE_PANEL_TOP_RATIO = 0.46;
+export const IDLE_LINE_RATIO = 0.64;
+
+/** The line's height as a fraction of the idle panel, for a window `viewportHeight` pixels tall. */
+export function idleLineRatio(viewportHeight: number): number {
+  const top = Math.max(IDLE_PANEL_TOP_RATIO * viewportHeight, IDLE_PANEL_MIN);
+  const panel = Math.max(IDLE_PANEL_MIN, viewportHeight - top);
+  return Math.min(IDLE_LINE_RATIO, (IDLE_LINE_RATIO * IDLE_PANEL_MIN) / panel);
+}

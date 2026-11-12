@@ -95,7 +95,7 @@ describe('timelines', () => {
   });
 
   it('adds the story column to a database that lacks it, keeping its data', () => {
-    const file = path.join(os.tmpdir(), `back-then-migrate-${process.pid}-${Date.now()}.sqlite`);
+    const file = path.join(os.tmpdir(), `timelines-migrate-${process.pid}-${Date.now()}.sqlite`);
     try {
       const old = new DatabaseSync(file);
       old.exec("CREATE TABLE timelines (id INTEGER PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); INSERT INTO timelines (name) VALUES ('Before');");

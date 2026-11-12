@@ -91,7 +91,7 @@ export interface StoryClip {
 /** The default silence between clips of a story; each timeline can set its own. */
 export const STORY_GAP_MS = 400;
 
-export function bounceUrl(clips: StoryClip[], fmt: ClipFormat, name = 'Back then story', gapMs = STORY_GAP_MS, download = true): string {
+export function bounceUrl(clips: StoryClip[], fmt: ClipFormat, name = 'Timelines story', gapMs = STORY_GAP_MS, download = true): string {
   const params = new URLSearchParams({ clips: JSON.stringify(clips), gap: String(gapMs), fmt, name });
   if (download) params.set('download', '1');
   return `/api/bounce?${params}`;

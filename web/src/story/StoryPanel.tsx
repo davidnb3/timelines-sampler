@@ -290,7 +290,7 @@ export function StoryPanel({
     : story.nowIndex >= 0 ? `Clip ${story.nowIndex + 1} of ${story.total}`
     : `${story.total} clip${story.total === 1 ? '' : 's'}, ${settings.order.length > 0 ? 'in your order' : 'in date order'}`;
   // Downloads are named after the timeline, so stories from different timelines do not overwrite each other.
-  const name = title ? `Back then - ${title}` : 'Back then story';
+  const name = title ? `Timelines - ${title}` : 'Timelines story';
 
   return (
     <div className={`story${leaving ? ' is-leaving' : ''}`} role="region" aria-label="Story" aria-hidden={leaving}>

@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { USER_AGENT } from '../config.ts';
+import { podcastIndexKeys } from '../settings.ts';
 
 const BASE = 'https://api.podcastindex.org/api/1.0';
 
@@ -10,6 +11,10 @@ export interface PiFeed {
   link: string | null;
   categories: string[];
   language: string;
+  author?: string;
+  description?: string;
+  image?: string;
+  episodeCount?: number;
 }
 
 export interface PiEpisode {
@@ -24,9 +29,9 @@ export interface PiEpisode {
 }
 
 async function call<T>(pathAndQuery: string): Promise<T> {
-  const key = process.env.PODCAST_INDEX_API_KEY;
-  const secret = process.env.PODCAST_INDEX_API_SECRET;
-  if (!key || !secret) throw new Error('PODCAST_INDEX_API_KEY and PODCAST_INDEX_API_SECRET must be set in .env');
+  const keys = podcastIndexKeys();
+  if (!keys) throw new Error('Podcast Index key missing: create a free account at https://api.podcastindex.org/signup and enter the key and secret in Add sources');
+  const { key, secret } = keys;
   const date = Math.floor(Date.now() / 1000).toString();
   const auth = crypto.createHash('sha1').update(key + secret + date).digest('hex');
   const res = await fetch(BASE + pathAndQuery, {

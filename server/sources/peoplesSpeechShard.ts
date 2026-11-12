@@ -1,21 +1,10 @@
-import fs from 'node:fs';
-import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
 import { asyncBufferFromFile, parquetMetadataAsync, parquetReadObjects } from 'hyparquet';
 import { compressors } from 'hyparquet-compressors';
-import { USER_AGENT } from '../config.ts';
+import { downloadTo } from '../download.ts';
 
-/** Downloads a file to `dest`, through a temporary name so an interrupted download is never mistaken for a whole one. */
-export async function downloadFile(url: string, dest: string): Promise<void> {
-  const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT }, redirect: 'follow' });
-  if (!res.ok || !res.body) throw new Error(`Download failed: HTTP ${res.status} for ${url}`);
-  const tmp = `${dest}.part`;
-  try {
-    await pipeline(Readable.fromWeb(res.body as never), fs.createWriteStream(tmp));
-    fs.renameSync(tmp, dest);
-  } finally {
-    fs.rmSync(tmp, { force: true });
-  }
+/** Downloads a file to `dest` (see `downloadTo`); `signal` stops it and leaves nothing behind. */
+export async function downloadFile(url: string, dest: string, signal?: AbortSignal): Promise<void> {
+  await downloadTo(url, dest, { signal });
 }
 
 export interface ShardRow {

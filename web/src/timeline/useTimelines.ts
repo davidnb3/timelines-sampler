@@ -7,8 +7,8 @@ import { timelinesApi, type SavedClip, type TimelineInfo } from './timelinesApi.
 export type { SavedClip, TimelineInfo };
 
 /** The browser-only store this replaced. Its clips are imported once, the first time the server has no timelines. */
-const LEGACY_KEY = 'back-then.timeline';
-const ACTIVE_KEY = 'back-then.active-timeline';
+const LEGACY_KEY = 'timelines.timeline';
+const ACTIVE_KEY = 'timelines.active-timeline';
 
 /** How long a new clip keeps its "just landed" styling, and how long a removed one takes to fade. */
 const ENTER_MS = 1400;

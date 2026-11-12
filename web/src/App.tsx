@@ -4,11 +4,13 @@ import {
   type Health, type Hit, type SourceId, type TopicCount,
 } from './api.ts';
 import { flyDot } from './fly.ts';
-import { Moon, Sun } from './icons.tsx';
+import { Moon, Plus, Sun } from './icons.tsx';
 import { PinCard } from './PinCard.tsx';
+import { SourcesPanel } from './sources/SourcesPanel.tsx';
+import { desktop, jobActive, useEvents } from './sources/sourcesApi.ts';
 import { ResultCard } from './ResultCard.tsx';
 import { useTheme } from './theme.ts';
-import { pinKey, pinTime } from './timeline/model.ts';
+import { idleLineRatio, pinKey, pinTime } from './timeline/model.ts';
 import { Timeline, type TimelineHandle, type TimelineItem } from './timeline/Timeline.tsx';
 import { TimelineSwitcher } from './timeline/TimelineSwitcher.tsx';
 import { useTimelines } from './timeline/useTimelines.ts';
@@ -45,6 +47,7 @@ const SHORTCUTS: [string, string][] = [
   ['p', 'Play the story'],
   ['f', 'Fit the timeline'],
   ['t', 'Enlarge timeline'],
+  ['a', 'Add sources'],
   ['l', 'Lights on / off'],
   ['esc', 'Close, stop'],
 ];
@@ -117,8 +120,8 @@ export function App() {
   const [submitted, setSubmitted] = useState('');
   const [runId, setRunId] = useState(0);
   const [results, setResults] = useState(EMPTY);
-  const [sources, setSources] = useState<Record<SourceId, boolean>>(() => load('back-then.sources', { library: true, tv: true }));
-  const [topics, setTopics] = useState<string[]>(() => load('back-then.topics', []));
+  const [sources, setSources] = useState<Record<SourceId, boolean>>(() => load('timelines.sources', { library: true, tv: true }));
+  const [topics, setTopics] = useState<string[]>(() => load('timelines.topics', []));
   const [availableTopics, setAvailableTopics] = useState<TopicCount[]>([]);
   const [health, setHealth] = useState<Health | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -129,19 +132,36 @@ export function App() {
   const [flying, setFlying] = useState<Set<string>>(new Set());
   const [helpOpen, setHelpOpen] = useState(false);
   const [focused, setFocused] = useState(false);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [droppedPaths, setDroppedPaths] = useState<string[]>([]);
+  const events = useEvents();
+  const [viewportHeight, setViewportHeight] = useState(() => window.innerHeight);
+  useEffect(() => {
+    const onResize = () => setViewportHeight(window.innerHeight);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   const roomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const timelineRef = useRef<TimelineHandle>(null);
   const abortRef = useRef<AbortController | null>(null);
   const submittedRef = useRef('');
-  const history = useRef<string[]>(load('back-then.history', []));
+  const history = useRef<string[]>(load('timelines.history', []));
   const historyPos = useRef(-1);
 
-  useEffect(() => {
+  const refreshLibrary = useCallback(() => {
     fetchTopics().then(setAvailableTopics, () => undefined);
     fetchHealth().then(setHealth, () => undefined);
   }, []);
+  useEffect(refreshLibrary, [refreshLibrary]);
+
+  // New recordings arrive while an import runs: refresh the topic chips and the count when the numbers move.
+  const importedCount = events.jobs.reduce((n, j) => n + j.done, 0);
+  useEffect(() => {
+    const t = setTimeout(refreshLibrary, 800);
+    return () => clearTimeout(t);
+  }, [importedCount, refreshLibrary]);
 
   // A soft light follows the pointer around the room.
   useEffect(() => {
@@ -181,7 +201,7 @@ export function App() {
       setEmbedId(null);
       historyPos.current = -1;
       history.current = [q, ...history.current.filter((h) => h !== q)].slice(0, 30);
-      save('back-then.history', history.current);
+      save('timelines.history', history.current);
       window.history.replaceState(null, '', `?${new URLSearchParams({ q })}`);
 
       const enabled = (Object.keys(sources) as SourceId[]).filter((s) => sources[s]);
@@ -228,6 +248,7 @@ export function App() {
   );
   const terms = useMemo(() => [...new Set([...results.library.terms, ...results.tv.terms])], [results]);
   const effectiveSelected = selectedId && hits.some((h) => h.id === selectedId) ? selectedId : (hits[0]?.id ?? null);
+  const running = events.jobs.find((j) => j.state === 'running') ?? events.jobs.find(jobActive);
   const anyLoading = Object.values(results).some((r) => r.status === 'loading');
   const allDone = submitted !== '' && !anyLoading;
   const phase = submitted === '' ? 'idle' : 'active';
@@ -391,7 +412,7 @@ export function App() {
   const toggleTopic = (topic: string) => {
     setTopics((cur) => {
       const next = cur.includes(topic) ? cur.filter((t) => t !== topic) : [...cur, topic];
-      save('back-then.topics', next);
+      save('timelines.topics', next);
       return next;
     });
   };
@@ -400,7 +421,7 @@ export function App() {
     setSources((cur) => {
       const next = { ...cur, [source]: !cur[source] };
       if (!next.library && !next.tv) return cur;
-      save('back-then.sources', next);
+      save('timelines.sources', next);
       return next;
     });
   };
@@ -447,6 +468,7 @@ export function App() {
         case ']': timelineRef.current?.step(1); break;
         case 'f': timelineRef.current?.fit(); break;
         case 't': toggleTall(); break;
+        case 'a': setSourcesOpen(true); break;
         case 'l': toggleTheme(); break;
         case '?': setHelpOpen((v) => !v); break;
         case 'Escape':
@@ -502,16 +524,33 @@ export function App() {
     .join('   ·   ');
 
   return (
-    <div ref={roomRef} className="room" data-phase={phase} data-dock={tall ? 'tall' : 'low'} data-story={story.open ? 'open' : 'closed'}>
+    <div
+      ref={roomRef}
+      className="room"
+      onDragOver={(e) => desktop() && e.dataTransfer.types.includes('Files') && e.preventDefault()}
+      onDrop={(e) => {
+        const bridge = desktop();
+        if (!bridge || !e.dataTransfer.files.length) return;
+        e.preventDefault();
+        setDroppedPaths([...e.dataTransfer.files].map((f) => bridge.pathForFile(f)).filter(Boolean));
+        setSourcesOpen(true);
+      }}
+      data-phase={phase} data-dock={tall ? 'tall' : 'low'} data-story={story.open ? 'open' : 'closed'}>
       <div className="room-bg" aria-hidden />
       <div className="room-grain" aria-hidden />
 
+      <SourcesPanel open={sourcesOpen} onClose={() => { setSourcesOpen(false); setDroppedPaths([]); }} events={events} droppedPaths={droppedPaths} />
+
       <header className="bar">
-        <span className="brand"><Logo playing={player.playing || story.playing} /><span className="brand-name">Back then</span></span>
+        <span className="brand"><Logo playing={player.playing || story.playing} /><span className="brand-name">Timelines</span></span>
         <span className="bar-right">
           <span className={`status${anyLoading ? ' is-busy' : ''}${saved.error ? ' is-error' : ''}`} role="status" aria-live="polite">
             <i aria-hidden />{statusText}
           </span>
+          <button type="button" className={`bar-add${running ? ' is-busy' : ''}`} onClick={() => setSourcesOpen(true)} title="Add sources (a)">
+            {running ? <i aria-hidden /> : <Plus size={13} />}
+            {running ? `Importing ${running.done + running.skipped + running.failed} of ${running.total}` : 'Add sources'}
+          </button>
           <button type="button" className="bar-btn" onClick={() => setHelpOpen((v) => !v)} aria-label="Keyboard shortcuts" aria-expanded={helpOpen} title="Shortcuts (?)">?</button>
           <button
             type="button"
@@ -558,7 +597,7 @@ export function App() {
         <div className="filters">
           <div className="chip-group" role="group" aria-label="Topic filter">
             <span className="chip-label">Topics</span>
-            {availableTopics.length === 0 && <span className="chip-none">none yet, run an ingest</span>}
+            {availableTopics.length === 0 && <span className="chip-none">none yet <button type="button" className="sp-link" onClick={() => setSourcesOpen(true)}>add sources</button></span>}
             {availableTopics.map((t) => (
               <button
                 key={t.topic}
@@ -612,7 +651,12 @@ export function App() {
             No clips found for “{submitted}”.
             {topics.length > 0 && sources.library ? ' Try clearing the topic filter, or ' : ' Try '}
             fewer or different words.
-            {health && health.library.episodes === 0 && ' The library is empty: run `npm run ingest` to add recordings.'}
+            {health && health.library.episodes === 0 && (
+              <>
+                {' The library is empty. '}
+                <button type="button" className="sp-link" onClick={() => setSourcesOpen(true)}>Add some recordings</button>.
+              </>
+            )}
           </p>
         )}
 
@@ -644,7 +688,7 @@ export function App() {
         theme={theme}
         tall={tall}
         onToggleTall={toggleTall}
-        lineRatio={story.open ? 0.4 : 0.64}
+        lineRatio={story.open ? 0.4 : phase === 'idle' ? idleLineRatio(viewportHeight) : 0.64}
         nowKey={story.nowKey}
         storyOpen={story.open}
         onStory={story.open ? story.close : story.openStory}

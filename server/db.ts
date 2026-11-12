@@ -62,6 +62,27 @@ CREATE TABLE IF NOT EXISTS timeline_clips (
   saved_at INTEGER NOT NULL,
   PRIMARY KEY (timeline_id, key)
 );
+CREATE TABLE IF NOT EXISTS jobs (
+  id INTEGER PRIMARY KEY,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  params TEXT NOT NULL DEFAULT '{}',
+  state TEXT NOT NULL,
+  error TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS job_items (
+  id INTEGER PRIMARY KEY,
+  job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  idx INTEGER NOT NULL,
+  label TEXT NOT NULL,
+  params TEXT NOT NULL DEFAULT '{}',
+  state TEXT NOT NULL,
+  error TEXT,
+  finished_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS job_items_job ON job_items(job_id, state, idx);
 CREATE VIRTUAL TABLE IF NOT EXISTS segments_fts USING fts5(
   text, content='segments', content_rowid='id', tokenize='porter unicode61'
 );

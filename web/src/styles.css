@@ -1,4 +1,4 @@
-/* Back then: a dark room with a timeline in it.
+/* Timelines: a dark room with a timeline in it.
    Colours are space-separated RGB triples (`--ink`, `--accent`) so they can take any alpha: rgb(var(--ink) / .4).
    The timeline canvas reads the same two variables, so both themes work there too. */
 
@@ -170,12 +170,20 @@ kbd {
   display: inline-flex;
   align-items: center;
   gap: 10px;
+  white-space: nowrap;
   font: 600 15px var(--font-sans);
   letter-spacing: 0.04em;
 }
 
-/* Lowercase letters make a word look lower than its line box suggests; lift it to sit level with the logo. */
+/* The wordmark: Instrument Serif italic (bundled, SIL Open Font License), the same family of letter as the quoted dialogue.
+   Lowercase letters sit low in their line box; the padding lifts it to sit level with the logo. */
 .brand-name {
+  font-family: 'Instrument Serif', var(--font-serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 25px;
+  letter-spacing: 0.005em;
+  line-height: 1;
   padding-bottom: 3px;
 }
 

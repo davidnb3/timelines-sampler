@@ -2,7 +2,7 @@ import { useCallback, useLayoutEffect, useState } from 'react';
 
 export type Theme = 'light' | 'dark';
 
-const KEY = 'back-then.theme';
+const KEY = 'timelines.theme';
 
 function stored(): Theme | null {
   try {

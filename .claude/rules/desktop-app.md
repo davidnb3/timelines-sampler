@@ -1,12 +1,26 @@
-# Desktop app: plan (not started)
+# Desktop app: plan and status
 
-Written 2026-11-04 from a conversation with the owner. Nothing here is built yet. Status and the
-general backlog live in `roadmap.md`; architecture in `CLAUDE.md`. Update this file when a step
-is done or a decision changes.
+Written 2026-11-04 from a conversation with the owner; built 2026-11-09. Status and the general backlog
+live in `roadmap.md`; architecture in `CLAUDE.md`. Update this file when a step is done or a decision changes.
+
+## Status (2026-11-09)
+
+Built and checked on a Mac (the owner's machine): the job runner with pause and resume, the importers
+(files and folders, subtitles, podcasts, Internet Archive including video files, old films), the setup
+screen (model download with progress verified end to end; ffmpeg and whisper hints), the "Add sources"
+panel, the Electron shell (window, security cookie, file picker, drop, external links), a packaged Mac
+app (`electron-builder --mac --dir`) that starts and serves the UI. **Not tested, because there is no
+Windows machine in the build environment:** the Windows installer (`npm run dist:win`, the GitHub
+workflow), the automatic downloads of ffmpeg and the whisper.cpp engine on Windows (the URLs and asset
+names were checked against the live releases; the unpacking with Windows' `tar` was not run), the
+CUDA build on the owner's RTX 5070 (the only CUDA builds on the release are 11.8 and 12.4, which may not
+contain kernels for a 50-series card; `whisper.ts` then falls back to the processor for the session).
+First thing to do on the Windows PC: install, open Add sources, install the three tools, import one
+file, and report what fails.
 
 ## Why a desktop app
 
-Anyone should be able to use Back then without a developer toolchain, and without us hosting other
+Anyone should be able to use Timelines without a developer toolchain, and without us hosting other
 people's audio. The user brings their own sources, everything runs on their computer, and nothing
 copyrighted is distributed by us. A public website was considered and rejected for now: serving
 audio and WAV/MP3 downloads to the public is distribution, and the on-demand ffmpeg cutting is
@@ -36,10 +50,30 @@ expensive and abusable (see the hosting discussion in the roadmap's "Decisions")
   transcribing will take on this computer before starting; let the user set a limit (for example
   the first 200 items); show progress per item; **pause and resume at any time**, including after
   quitting and reopening the app.
+- **Podcast Index key: the app shows the link** (api.podcastindex.org/signup) and the user pastes their
+  own key and secret (kept in `settings.json`, never sent back to the page). No key ships with the app.
+- **Packaging (owner, 2026-11-09): no paid developer accounts.** Windows: an unsigned installer from the
+  GitHub release; Windows shows a "protected your PC" screen the first time (More info, Run anyway),
+  which the README explains. Mac: no download; users clone the repo and run `npm run desktop`
+  (README). An unsigned DMG is built by the workflow as a bonus (`continue-on-error`), but is not
+  advertised: on a Mac it needs a right-click Open and may be blocked on newer macOS. Free option for
+  Windows signing if it matters later: SignPath Foundation signs open-source projects for free.
+- **The licence label per recording is postponed** (owner, 2026-11-09). Do it later.
 - **The owner reopened "own-library upload"** (the roadmap said "maybe much later") for the desktop
   app: dragging in the user's own files is the main way to add sources.
 
-## Wrapper choice: Electron (recommended, not yet confirmed by the owner)
+## Goal (owner, 2026-11-09): every audio source is one click away
+
+The "Add sources" screen shows one tile per source and nothing needs a terminal or an editor:
+**My files** (drag in files or folders), **Podcasts** (search or paste a link), **Internet Archive**
+(old-time radio, commercials, classic TV shows, public-domain films, or any search the user types),
+**Old films** (the People's Speech importer), and **Live TV captions** (not an import: a live search,
+stream-only). Streaming-site downloads come later (see decisions). Every tile that imports creates a
+job that can be paused and resumed. Open question: Podcast Index needs an API key and secret per app
+(today ours are in `.env`); decide whether the app ships one registered key, or each user enters their
+own, before packaging. Internet Archive S3 keys are optional (higher rate limits only).
+
+## Wrapper choice: Electron (chosen by the owner, 2026-11-09)
 
 The owner has used Electron before. Reasons it fits this app better than Tauri:
 
@@ -56,7 +90,7 @@ The owner has used Electron before. Reasons it fits this app better than Tauri:
   model) matter less because we bundle ffmpeg (about 80 MB) and download a speech model (about
   500 MB) anyway.
 
-## Pieces to build, in order
+## Pieces to build, in order (1 to 7 are built, see Status; 8 is later)
 
 1. **Job runner and progress, with pause and resume.** A `jobs` table and a queue in the server that runs ingest work in the
    background, with progress sent to the UI (server-sent events). Also unlocks the roadmap's "Add
@@ -82,6 +116,15 @@ The owner has used Electron before. Reasons it fits this app better than Tauri:
    directory instead of the repo's `data/`, code signing and notarising (Apple developer account,
    about 99 USD a year), auto-update.
 8. **Streaming-site downloads** (see decisions), only after a legal check.
+
+## GPU transcription (owner, 2026-11-04)
+
+No separate transcription service on the owner's PC. He wants the app in its final form first and
+will then transcribe by dropping audio or folders into it, as any user would. So the packaged app
+needs a whisper build that uses the GPU where it can: CUDA on Windows with an NVIDIA card (his
+RTX 5070 is the test case; RTX 50-series needs CUDA 12.8 or newer and a recent driver), and Metal
+on Mac if a build is found that does not crash (see the Mac note in `CLAUDE.md`), with a CPU
+fallback and a speed estimate shown before a big job.
 
 ## Things to settle before step 6
 

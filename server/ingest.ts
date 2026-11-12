@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,25 +5,31 @@ import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { DATA_DIR } from './config.ts';
 import { hasEpisode, libraryStats, listTopics, openDb, saveEpisode } from './db.ts';
+import { buildProcessors } from './importers/index.ts';
+import { cleanTopics } from './importers/common.ts';
+import { iaProcessor, planIa, type IaParams } from './importers/ia.ts';
+import { assembleRecording, recordingSlug } from './importers/peoplesAudio.ts';
+import { filmsInfo, planFilms } from './importers/films.ts';
+import { planPodcast, podcastProcessor, type PodcastParams } from './importers/podcast.ts';
+import { JobRunner, type ItemSpec, type Processor, type ProcessorContext } from './jobs.ts';
 import { dateFromName, titleFromName } from './naming.ts';
-import { downloadUrl, detailsUrl, itemFiles, pickMp3s, searchItems } from './sources/internetArchive.ts';
-import { episodesByFeed, feedById, searchFeeds, type PiFeed } from './sources/podcastIndex.ts';
+import { feedById, searchFeeds, type PiFeed } from './sources/podcastIndex.ts';
 import {
-  DATASET_PAGE, decodeRecording, flacDurationMs, groupRecordings, layoutClips, parseClipId, recordingDate, recordingTitle, shardUrl,
+  collectionItems, FILM_COLLECTIONS, filmDate, filmTitle, filmTopics, recordingsByItem,
+  type CatalogEntry, type FilmItem, type ItemMeta,
+} from './sources/peoplesSpeechFilms.ts';
+import {
+  DATASET_PAGE, decodeRecording, flacDurationMs, groupRecordings, parseClipId, recordingDate, recordingTitle, shardUrl,
   type ClipMeta,
 } from './sources/peoplesSpeech.ts';
-import {
-  collectionItems, FILM_COLLECTIONS, filmDate, filmShow, filmTitle, filmTopics, recordingsByItem,
-  type CatalogEntry, type FilmItem, type FilmRecording, type ItemMeta,
-} from './sources/peoplesSpeechFilms.ts';
-import { downloadFile, readShard, readShardRows } from './sources/peoplesSpeechShard.ts';
+import { downloadFile, readShard } from './sources/peoplesSpeechShard.ts';
 import { normalizeTopics } from './topics.ts';
-import { modelAvailable, run, transcribe } from './whisper.ts';
+import { modelAvailable } from './whisper.ts';
 
 const USAGE = `Usage: npm run ingest -- <command> [options]
 
 Commands
-  ia        Transcribe Internet Archive audio into the search index
+  ia        Transcribe Internet Archive audio or video into the search index
               --query <archive.org query>   e.g. 'collection:oldtimeradio AND subject:"science fiction"'
               --limit <n>        items to look at (default 5)
               --per-item <n>     recordings per item (default 1)
@@ -37,11 +42,11 @@ Commands
               --config <name>    microset (336 clips, one recording; default), clean, dirty, ...
               --shard <n>        which parquet file of the config (default 0; a full shard is about 470 MB)
   peoples-speech-films   Index only the films in People's Speech (Prelinger shorts, public-domain features, sci-fi, noir ...)
-              picks them by Internet Archive collection from data/peoples-speech/catalog-clean.json, then reads the
-              shards that hold them one by one (about 470 MB each, deleted afterwards); safe to stop and run again
-              --select-only      only build data/peoples-speech/films.json (the list of films), do not import
+              the same import the app offers: one background job that reads the shards holding the films, one by one
+              (about 470 MB each, deleted afterwards). Ctrl-C pauses it; run the command again to continue.
+              --select-only      only build data/peoples-speech/films.json (the list of films) from the Internet Archive
+                                 and data/peoples-speech/catalog-clean.json, do not import
               --refresh          rebuild that list instead of reusing it
-              --shard <n>        import just this shard (and any shard its films spill into)
   stats     Show what is indexed
   retitle   Recompute titles and dates of Internet Archive recordings from their file names
 
@@ -72,81 +77,46 @@ const { positionals, values } = parseArgs({
 });
 
 const num = (v: string | undefined, d: number) => (v ? Number(v) : d);
-const forcedTopics = values.topic ?? [];
-const maxSeconds = num(values['max-minutes'], 45) * 60;
+const forcedTopics = cleanTopics(values.topic ?? []);
+const maxMinutes = num(values['max-minutes'], 45);
 const conn = openDb();
 let failures = 0;
 
-async function ingestRecording(r: {
-  source: string;
-  extId: string;
-  show: string;
-  title: string;
-  date: string | null;
-  audioUrl: string;
-  pageUrl: string | null;
-  durationMs: number | null;
-  rawTopics: string[];
-}): Promise<void> {
-  if (!values.force && hasEpisode(conn, r.extId)) {
-    console.log(`  skip (already indexed): ${r.title}`);
-    return;
-  }
-  const t0 = Date.now();
-  console.log(`  transcribing: ${r.title}`);
-  try {
-    const segments = await transcribe(r.audioUrl, maxSeconds);
-    if (!segments.length) {
-      console.log('  no speech found, skipped');
-      return;
+/** Runs the items of an import one after another in this process, printing what happens. */
+async function runItems(processor: Processor, params: Record<string, unknown>, items: ItemSpec[]): Promise<void> {
+  const controller = new AbortController();
+  for (const [i, item] of items.entries()) {
+    console.log(`- [${i + 1}/${items.length}] ${item.label}`);
+    const ctx: ProcessorContext = {
+      signal: controller.signal,
+      progress: (stage) => console.log(`  ${stage}`),
+      addItems: (more) => void items.push(...more),
+      peekWaiting: (n) => items.slice(i + 1, i + 1 + n),
+      hasItem: (label) => items.some((it) => it.label === label),
+    };
+    try {
+      const result = await processor.run(item, ctx, params);
+      console.log(result === 'skipped' ? '  skipped (already indexed or no speech)' : '  indexed');
+    } catch (err) {
+      failures++;
+      console.error(`  FAILED: ${err instanceof Error ? err.message.split('\n')[0] : err}`);
     }
-    saveEpisode(
-      conn,
-      {
-        source: r.source,
-        extId: r.extId,
-        show: r.show,
-        title: r.title,
-        date: r.date,
-        audioUrl: r.audioUrl,
-        pageUrl: r.pageUrl,
-        durationMs: r.durationMs,
-        topics: normalizeTopics(r.rawTopics, forcedTopics),
-      },
-      segments,
-    );
-    console.log(`  indexed ${segments.length} segments in ${Math.round((Date.now() - t0) / 1000)}s`);
-  } catch (err) {
-    // One bad recording should not abort a long batch.
-    failures++;
-    console.error(`  FAILED: ${err instanceof Error ? err.message.split('\n')[0] : err}`);
   }
 }
 
 async function ingestIa(): Promise<void> {
   if (!values.query) throw new Error('--query is required for "ia"');
-  const items = await searchItems(`${values.query} AND mediatype:audio`, num(values.limit, 5));
+  const params: IaParams = {
+    query: `${values.query} AND mediatype:audio`,
+    limit: num(values.limit, 5),
+    perItem: num(values['per-item'], 1),
+    maxMinutes,
+    topics: forcedTopics,
+    show: null,
+  };
+  const items = await planIa(params);
   console.log(`Found ${items.length} Internet Archive items`);
-  for (const item of items) {
-    const files = pickMp3s(await itemFiles(item.identifier)).slice(0, num(values['per-item'], 1));
-    if (!files.length) console.log(`- ${item.title}: no MP3 files, skipped`);
-    for (const f of files) {
-      console.log(`- ${item.title} / ${f.name}`);
-      await ingestRecording({
-        source: 'ia',
-        extId: `ia:${item.identifier}/${f.name}`,
-        // The item title names the series; the uploader (`creator`) is usually a collector group.
-        show: item.title.replace(/\s+-\s+Single Episodes$/i, ''),
-        title: titleFromName(f.name),
-        // Broadcast date from the file name beats the upload date IA records on the item.
-        date: dateFromName(f.name) ?? item.date,
-        audioUrl: downloadUrl(item.identifier, f.name),
-        pageUrl: detailsUrl(item.identifier),
-        durationMs: null,
-        rawTopics: item.subjects,
-      });
-    }
-  }
+  await runItems(iaProcessor(conn), { ...params }, items);
 }
 
 async function ingestPodcasts(): Promise<void> {
@@ -156,45 +126,12 @@ async function ingestPodcasts(): Promise<void> {
   else throw new Error('--term or --feed is required for "podcast"');
   for (const feed of feeds) {
     console.log(`- ${feed.title}`);
-    for (const ep of await episodesByFeed(feed.id, num(values.episodes, 2))) {
-      await ingestRecording({
-        source: 'podcast',
-        extId: `pi:${ep.id}`,
-        show: feed.title,
-        title: ep.title,
-        date: ep.datePublished ? new Date(ep.datePublished * 1000).toISOString().slice(0, 10) : null,
-        audioUrl: ep.enclosureUrl,
-        pageUrl: ep.link ?? feed.link,
-        durationMs: ep.duration ? ep.duration * 1000 : null,
-        rawTopics: feed.categories,
-      });
-    }
+    const { items } = await planPodcast({ feedId: feed.id, episodes: num(values.episodes, 2) });
+    const params: PodcastParams = { feedId: feed.id, episodes: items.length, maxMinutes, topics: forcedTopics, feedTitle: feed.title, link: feed.link, categories: feed.categories };
+    await runItems(podcastProcessor(conn), { ...params }, items);
   }
 }
 
-/** A file name for a recording: safe characters, and a short hash when the name had to be cut. */
-function recordingSlug(name: string): string {
-  const safe = name.replace(/[^A-Za-z0-9._-]+/g, '_');
-  return safe.length <= 120 ? safe : `${safe.slice(0, 100)}-${createHash('sha1').update(name).digest('hex').slice(0, 8)}`;
-}
-
-/** Lays a recording's clips end to end into one FLAC file at `out`; the returned times match that file. */
-async function assembleRecording(clips: ClipMeta[], out: string, list: string): Promise<{ times: { startMs: number; endMs: number }[]; durationMs: number }> {
-  fs.writeFileSync(list, clips.map((c) => `file '${c.file.replaceAll("'", "'\\''")}'`).join('\n') + '\n');
-  // Re-encoding (lossless) rather than copying keeps the joined file valid whatever the clips' headers say.
-  await run('ffmpeg', ['-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', list, '-c:a', 'flac', out]);
-  const times = layoutClips(clips.map((c) => c.durationMs));
-  const durationMs = times[times.length - 1]!.endMs;
-  const actualMs = Number((await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', out])).trim()) * 1000;
-  if (Math.abs(actualMs - durationMs) > 50) console.warn(`  warning: assembled audio is ${Math.round(actualMs)} ms, transcript times add up to ${durationMs} ms`);
-  return { times, durationMs };
-}
-
-/**
- * Indexes one shard of People's Speech. Its clips arrive with transcripts, so there is nothing to
- * transcribe: each recording's clips are laid end to end into one local FLAC file, and each clip
- * becomes a segment whose times match that file exactly (lengths come from the FLAC headers).
- */
 async function ingestPeoplesSpeech(): Promise<void> {
   const config = values.config ?? 'microset';
   const shard = num(values.shard, 0);
@@ -209,7 +146,7 @@ async function ingestPeoplesSpeech(): Promise<void> {
     await downloadFile(shardUrl(config, shard), parquet);
   }
 
-  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'back-then-ps-'));
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'timelines-ps-'));
   try {
     const clips: ClipMeta[] = [];
     const total = await readShard(parquet, (row) => {
@@ -258,11 +195,6 @@ async function ingestPeoplesSpeech(): Promise<void> {
 
 const PS_ROOT = path.join(DATA_DIR, 'peoples-speech');
 
-/**
- * The films of People's Speech `clean` with their Internet Archive title, date and topics, kept in
- * `films.json` (built once; `--refresh` rebuilds it). Picked by collection from the catalog of the
- * whole set, so no shard has to be read to find them.
- */
 async function selectFilms(): Promise<FilmItem[]> {
   const listFile = path.join(PS_ROOT, 'films.json');
   if (!values.refresh && fs.existsSync(listFile)) return JSON.parse(fs.readFileSync(listFile, 'utf8')) as FilmItem[];
@@ -295,123 +227,44 @@ async function selectFilms(): Promise<FilmItem[]> {
   return films;
 }
 
-/** Downloads a shard; Hugging Face limits requests, so a refused one is retried after a pause. */
-async function downloadShard(url: string, dest: string): Promise<void> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await downloadFile(url, dest);
-    } catch (err) {
-      if (attempt >= 5) throw err;
-      console.warn(`  download failed (${err instanceof Error ? err.message : err}); trying again in ${30 * (attempt + 1)} s`);
-      await new Promise((r) => setTimeout(r, 30_000 * (attempt + 1)));
-    }
-  }
-}
-
-/**
- * Indexes the films of People's Speech `clean`: only the recordings picked by `selectFilms`, shard by
- * shard (each shard is downloaded, its film clips are kept, the shard is deleted). A film that runs on
- * into the next shard queues that shard too. Progress is kept in `films-done.json`, so stopping and
- * running again continues where it left off.
- */
+/** Imports the films as one background job, the way the app does: Ctrl-C pauses it, running the command again continues it. */
 async function ingestPeoplesSpeechFilms(): Promise<void> {
   const films = await selectFilms();
-  const hours = films.reduce((s, f) => s + f.recordings.reduce((t, r) => t + r.ms, 0), 0) / 3.6e6;
-  console.log(`${films.length} films, ${hours.toFixed(1)} hours`);
+  const info = filmsInfo(films);
+  console.log(`${info.films} films, ${info.hours} hours, ${info.shards} shards (about ${info.downloadGb} GB to download, ${info.diskGb} GB kept)`);
   if (values['select-only']) return;
 
-  const wanted = new Map<string, { film: FilmItem; rec: FilmRecording }>();
-  for (const film of films) for (const rec of film.recordings) wanted.set(rec.recording, { film, rec });
-
-  const audioDir = path.join(PS_ROOT, 'audio');
-  fs.mkdirSync(audioDir, { recursive: true });
-  const stateFile = path.join(PS_ROOT, 'films-done.json');
-  const done: Record<string, number[]> = !values.force && fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, 'utf8')) : {};
-  const queue = new Set<number>(values.shard ? [num(values.shard, 0)] : films.flatMap((f) => f.recordings.map((r) => r.shard)));
-  const visited = new Set<number>();
-  const total = queue.size;
-  const shardFile = (n: number) => path.join(PS_ROOT, `clean-${String(n).padStart(4, '0')}.parquet`);
-  const downloads = new Map<number, Promise<void>>();
-  const startDownload = (n: number) => {
-    if (!downloads.has(n)) downloads.set(n, fs.existsSync(shardFile(n)) ? Promise.resolve() : downloadShard(shardUrl('clean', n), shardFile(n)));
-    return downloads.get(n)!;
-  };
-  for (const f of fs.readdirSync(PS_ROOT)) if (/^clean-\d+\.parquet\.part$/.test(f)) fs.rmSync(path.join(PS_ROOT, f));
-
-  while (queue.size) {
-    const shard = Math.min(...queue);
-    queue.delete(shard);
-    visited.add(shard);
-    const padded = String(shard).padStart(4, '0');
-    const known = done[padded];
-    if (known) {
-      for (const n of known) if (!visited.has(n)) queue.add(n);
-      continue;
-    }
-
-    const t0 = Date.now();
-    const parquet = shardFile(shard);
-    console.log(`- shard ${padded} (${visited.size} of about ${Math.max(total, visited.size)})`);
-    // Downloads are what takes the time, so the next two shards are fetched while this one is processed.
-    for (const n of [...queue].sort((a, b) => a - b).filter((n) => !done[String(n).padStart(4, '0')]).slice(0, 2)) void startDownload(n).catch(() => {});
-    await startDownload(shard);
-    const work = fs.mkdtempSync(path.join(os.tmpdir(), 'back-then-ps-'));
-    try {
-      const clips: ClipMeta[] = [];
-      const lastIndex = new Map<string, number>();
-      await readShardRows(parquet, (id) => wanted.has(parseClipId(id).recording), (row) => {
-        const { recording, index } = parseClipId(row.id);
-        lastIndex.set(recording, Math.max(lastIndex.get(recording) ?? -1, index));
-        const text = row.text.trim();
-        if (!text) return;
-        const file = path.join(work, `${clips.length}.flac`);
-        fs.writeFileSync(file, row.audio);
-        clips.push({ id: row.id, index, durationMs: flacDurationMs(row.audio) ?? row.durationMs, text, file });
-      });
-
-      // A film whose last clip number is short of its clip count carries on in the next shard.
-      const spill: number[] = [];
-      for (const [recording, last] of lastIndex) if (last + 1 < wanted.get(recording)!.rec.clips) spill.push(shard + 1);
-      if (spill.length) queue.add(shard + 1);
-
-      let indexed = 0;
-      let ms = 0;
-      for (const rec of groupRecordings(clips)) {
-        const { film, rec: entry } = wanted.get(rec.recording)!;
-        const extId = `ps:clean/${padded}/${rec.recording}`;
-        if (!values.force && hasEpisode(conn, extId)) continue;
-        const slug = recordingSlug(`clean-${padded}-${rec.recording}`);
-        const out = path.join(audioDir, `${slug}.flac`);
-        const { times, durationMs } = await assembleRecording(rec.clips, out, path.join(work, `${slug}.txt`));
-        saveEpisode(
-          conn,
-          {
-            source: 'peoples-speech',
-            extId,
-            show: filmShow(film.collections),
-            title: entry.shard === shard ? film.title : `${film.title} (cont.)`,
-            date: film.date,
-            audioUrl: pathToFileURL(out).href,
-            pageUrl: `https://archive.org/details/${film.item}`,
-            durationMs,
-            topics: film.topics,
-          },
-          rec.clips.map((c, i) => ({ startMs: times[i]!.startMs, endMs: times[i]!.endMs, text: c.text })),
-        );
-        indexed++;
-        ms += durationMs;
-      }
-      console.log(`  ${indexed} recordings, ${(ms / 60000).toFixed(0)} min of audio, ${Math.round((Date.now() - t0) / 1000)} s${spill.length ? `; continues in shard ${shard + 1}` : ''}`);
-      done[padded] = [...new Set(spill)];
-      fs.writeFileSync(stateFile, JSON.stringify(done));
-    } finally {
-      fs.rmSync(work, { recursive: true, force: true });
-      fs.rmSync(parquet, { force: true });
-    }
+  const runner = new JobRunner(conn, buildProcessors(conn));
+  const open = conn.prepare("SELECT id FROM jobs WHERE kind = 'films' AND state IN ('paused', 'queued') ORDER BY id DESC LIMIT 1").get() as { id: number } | undefined;
+  runner.start();
+  let id: number;
+  if (open) {
+    id = open.id;
+    console.log(`Continuing job ${id}`);
+    runner.resume(id);
+  } else {
+    id = runner.create('films', `Old films (${info.films} films)`, {}, planFilms(films)).id;
   }
+  let last = '';
+  runner.onChange(() => {
+    const j = runner.get(id)!;
+    const line = `[${j.done + j.skipped}/${j.total}] ${j.current ?? j.state}`;
+    if (line !== last) console.log(line);
+    last = line;
+  });
+  const stop = () => {
+    runner.pause(id);
+    setTimeout(() => process.exit(0), 3000);
+  };
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
+  await runner.idle();
+  const j = runner.get(id)!;
+  console.log(`Job ${j.state}: ${j.done} done, ${j.skipped} skipped, ${j.failed} failed`);
+  for (const f of j.failures) console.error(`  FAILED ${f.label}: ${f.error}`);
+  if (j.failed) failures++;
 }
 
-/** Recomputes titles and dates of Internet Archive recordings from the file names in `ext_id`. */
 function retitle(): void {
   const rows = conn.prepare("SELECT id, ext_id, title, date FROM episodes WHERE source = 'ia'").all() as {
     id: number;
@@ -446,12 +299,10 @@ try {
   else if (command === 'peoples-speech') {
     await ingestPeoplesSpeech();
     printStats();
-  }
-  else if (command === 'peoples-speech-films') {
+  } else if (command === 'peoples-speech-films') {
     await ingestPeoplesSpeechFilms();
     printStats();
-  }
-  else if (command === 'ia' || command === 'podcast') {
+  } else if (command === 'ia' || command === 'podcast') {
     if (!modelAvailable()) throw new Error('Whisper model missing; see CLAUDE.md for the download command');
     if (command === 'ia') await ingestIa();
     else await ingestPodcasts();

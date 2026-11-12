@@ -1,0 +1,40 @@
+# Packaging for the desktop app. `npm run dist:win` (on Windows) makes an installer in release/.
+# Nothing is signed: Windows shows a "protected your PC" notice the first time, and on a Mac the app is
+# built from source instead (see README.md). The server runs from its TypeScript files, so there is no
+# server build step and no asar archive.
+appId: com.davidnb3.timelines
+productName: Timelines
+copyright: Timelines
+directories:
+  output: release
+  buildResources: desktop/assets
+asar: false
+files:
+  - desktop/main.mjs
+  - desktop/preload.cjs
+  - desktop/assets/icon.png
+  - server/**
+  - '!server/**/*.test.ts'
+  - web-dist/**
+  - seed/**
+  - package.json
+  - node_modules/**
+  - '!node_modules/.cache'
+win:
+  target:
+    - target: nsis
+      arch: x64
+  icon: desktop/assets/icon.png
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: Timelines-Setup-${version}.${ext}
+mac:
+  category: public.app-category.music
+  icon: desktop/assets/icon.png
+  identity: null
+  target:
+    - target: dmg
+dmg:
+  artifactName: Timelines-${version}-${arch}.${ext}

@@ -1,42 +1,53 @@
-# Back then
+# Timelines
 
 Search spoken audio the way you search text. Type words or a sentence, get clips of people saying
-them, with source, date and timestamp. Preview, extend with surrounding lines, save as WAV or MP3.
+them, with source, date and timestamp. Preview, trim, fade, extend with surrounding lines, save as WAV or MP3,
+drag clips onto a timeline and play them as one story.
 
-Two sources:
+Everything runs on your own computer. You add the recordings you want to search:
 
-- **library**: recordings you index yourself (Internet Archive audio, podcasts via Podcast Index),
-  transcribed locally with whisper.cpp and searched with SQLite full-text search.
-- **tv captions**: live search of US TV closed captions through GDELT, played in the Internet
-  Archive's own player (stream only).
+- **Your own files and folders**: audio or video, transcribed on your computer (or use subtitle files).
+- **Podcasts**: search by name, pick how many episodes.
+- **Internet Archive**: old-time radio, vintage TV commercials, public-domain films, classic TV shows, or any search you type.
+- **Old films**: about 2,700 old films and shorts (Prelinger, sci-fi, horror, noir) with ready-made transcripts, no waiting.
+- **Live TV captions**: US TV news, searched live (stream only).
 
-## Setup
+## The desktop app
+
+### Windows
+
+Download the installer from the [Releases](https://github.com/davidnb3/back-then/releases) page and run it.
+The installer is not signed, so Windows shows "Windows protected your PC" the first time: choose **More info**, then **Run anyway**.
+On first start open **Add sources**; the app downloads what it needs for transcription (ffmpeg, the speech engine, a speech model) with one click each.
+With an NVIDIA graphics card it uses the card, which is much faster.
+
+### Mac (and Linux)
+
+The Mac app is not distributed as a download (that would need a paid Apple developer account). Run it from source instead:
 
 ```bash
-brew install ffmpeg whisper-cpp
-npm install
-cp .env.example .env        # then fill in your keys
-mkdir -p data/models
-curl -L -o data/models/ggml-large-v3-turbo-q5_0.bin \
-  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
+brew install ffmpeg whisper-cpp     # Linux: install ffmpeg and build whisper.cpp
+git clone https://github.com/davidnb3/back-then.git
+cd back-then
+npm install                          # needs Node 24 or newer
+npm run desktop
 ```
 
-## Use
+Open **Add sources**, download a speech model (one click), and import something.
+
+Your library lives in the app's data folder (on a Mac `~/Library/Application Support/Timelines/data`, on Windows `%APPDATA%\Timelines\data`).
+
+## The web version (for developers)
 
 ```bash
-# add recordings (runs on CPU, roughly 2.3x real time)
-npm run ingest -- ia --query 'collection:oldtimeradio AND subject:"science fiction"' --limit 4 --per-item 2 --topic sci-fi --max-minutes 10
-npm run ingest -- podcast --term "science fiction" --episodes 2 --topic sci-fi
-
+npm install
 npm run dev     # http://localhost:5273
 ```
 
-The UI is a dark room with a timeline in it. Starring a clip (or saving it as WAV/MP3) flies it onto the
-timeline at its recording date; drag the timeline to pan, scroll or pinch to zoom, click a pinned clip to
-open it. Timelines are saved on the server (several, each one a story): switch, rename, duplicate or
-delete them from the name in the timeline's corner.
+The command line can add recordings too (`npm run ingest`, see `server/ingest.ts`), and a `.env` file (template: `.env.example`)
+can hold the Podcast Index key. `CLAUDE.md` describes the architecture and the known limits; `.claude/rules/` holds the roadmap and the desktop app plan.
 
-Keyboard: `/` search, `j`/`k` move, `space` play, `s` add to timeline, `e` more context, `d` save WAV,
+## Keyboard
+
+`/` search, `j`/`k` move, `space` play, `s` add to timeline, `e` more context, `d` save WAV, `a` add sources,
 `[` `]` step through pinned clips, `f` fit the timeline, `t` enlarge it, `l` lights on/off, `?` help, `esc` close/stop.
-
-See `CLAUDE.md` for architecture and known limits.
