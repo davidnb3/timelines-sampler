@@ -1,5 +1,7 @@
 # Timelines
 
+![Timelines: a search for "flying saucer" across old films and radio, with the results on top and the timeline of saved clips below](docs/screenshot.jpg)
+
 Search spoken audio the way you search text. Type words or a sentence, get clips of people saying
 them, with source, date and timestamp. Preview, trim, fade, extend with surrounding lines, save as WAV or MP3,
 drag clips onto a timeline and play them as one story.
@@ -19,7 +21,7 @@ Everything runs on your own computer. You add the recordings you want to search:
 Download the installer from the [Releases](https://github.com/davidnb3/timelines-sampler/releases) page and run it.
 The installer is not signed, so Windows shows "Windows protected your PC" the first time: choose **More info**, then **Run anyway**.
 On first start open **Add sources**; the app downloads what it needs for transcription (ffmpeg, the speech engine, a speech model) with one click each.
-With an NVIDIA graphics card it uses the card, which is much faster.
+With an NVIDIA graphics card it tries to use the card, which is much faster; if that fails it falls back to the processor.
 
 ### Mac (and Linux)
 
@@ -45,9 +47,18 @@ npm run dev     # http://localhost:5273
 ```
 
 The command line can add recordings too (`npm run ingest`, see `server/ingest.ts`), and a `.env` file (template: `.env.example`)
-can hold the Podcast Index key. `CLAUDE.md` describes the architecture and the known limits; `.claude/rules/` holds the roadmap and the desktop app plan.
+can hold the Podcast Index key. `npm test` and `npm run typecheck` run the checks. `CLAUDE.md` describes the architecture and the known limits;
+`.claude/rules/` holds the roadmap and the desktop app plan.
 
 ## Keyboard
 
-`/` search, `j`/`k` move, `space` play, `s` add to timeline, `e` more context, `d` save WAV, `a` add sources,
-`[` `]` step through pinned clips, `f` fit the timeline, `t` enlarge it, `l` lights on/off, `?` help, `esc` close/stop.
+`/` search, `j`/`k` move, `space` play, `s` add to timeline, `e` more context, `r` loop the selection, `d` save WAV,
+`a` add sources, `[` `]` step through pinned clips, `p` play the story, `f` fit the timeline, `t` enlarge it,
+`l` lights on/off, `?` help, `esc` close/stop.
+
+## Good to know
+
+- Everything is transcribed and searched on your computer. Recordings you import stay under their owners' rights: the app only works with what you add.
+- Live TV caption results can be played but not trimmed or saved (the video files are not available).
+- Transcribing on a processor runs at roughly two to three times real time, so a long import takes a while; imports can be paused and resumed.
+- The Windows installer and the automatic tool downloads are new and have had little testing: please [open an issue](https://github.com/davidnb3/timelines-sampler/issues) if something fails.
