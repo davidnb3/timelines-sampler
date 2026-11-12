@@ -16,7 +16,7 @@ Everything runs on your own computer. You add the recordings you want to search:
 
 ### Windows
 
-Download the installer from the [Releases](https://github.com/davidnb3/back-then/releases) page and run it.
+Download the installer from the [Releases](https://github.com/davidnb3/timelines-sampler/releases) page and run it.
 The installer is not signed, so Windows shows "Windows protected your PC" the first time: choose **More info**, then **Run anyway**.
 On first start open **Add sources**; the app downloads what it needs for transcription (ffmpeg, the speech engine, a speech model) with one click each.
 With an NVIDIA graphics card it uses the card, which is much faster.
@@ -27,8 +27,8 @@ The Mac app is not distributed as a download (that would need a paid Apple devel
 
 ```bash
 brew install ffmpeg whisper-cpp     # Linux: install ffmpeg and build whisper.cpp
-git clone https://github.com/davidnb3/back-then.git
-cd back-then
+git clone https://github.com/davidnb3/timelines-sampler.git
+cd timelines-sampler
 npm install                          # needs Node 24 or newer
 npm run desktop
 ```

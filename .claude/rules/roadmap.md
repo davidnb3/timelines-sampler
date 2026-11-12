@@ -9,7 +9,7 @@ Last updated: 2026-11-09.
 ## How to work in this repo
 
 - Do only what was asked. A question gets an answer, not a code change. Propose a fix and wait for a yes. (Also in the owner's global `~/.claude/CLAUDE.md`.)
-- Commit only when asked, and push only when asked. The remote is `origin` = https://github.com/davidnb3/back-then (branch `main`).
+- Commit only when asked, and push only when asked. The remote is `origin` = https://github.com/davidnb3/timelines-sampler (branch `main`).
 - After structural changes, update `CLAUDE.md` (and this file) so they match the code.
 - Do not work around a host that blocks the app (no browser User-Agent spoofing). A Buzzsprout feed returned 403 for the default ffmpeg User-Agent; the owner chose to skip that feed instead.
 - Never print or commit `.env` values.
